@@ -392,9 +392,9 @@ This project is licensed under the MIT License.
 
 # 👨‍💻 Author
 
-**Ram Wagh**
+**Gaurav Sonawane**
 
-Full Stack Developer | AI Enthusiast | Cloud & DevOps Learner
+Full Stack Developer | AI Enthusiast | Cloud & DevOps Engineer
 
 Building production-ready educational software with modern web technologies.
 
