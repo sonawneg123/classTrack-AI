@@ -8,6 +8,7 @@ import AdminDashboardPage from "@pages/admin/DashboardPage";
 import TeacherDashboardPage from "@pages/teacher/DashboardPage";
 import TeacherClassroomsPage from "@pages/teacher/ClassroomsPage";
 import TeacherTasksPage from "@pages/teacher/TasksPage";
+import TeacherGradingOverviewPage from "@pages/teacher/GradingOverviewPage";
 import StudentDashboardPage from "@pages/student/DashboardPage";
 import StudentAssignmentsPage from "@pages/student/AssignmentsPage";
 import { ProtectedRoute } from "./ProtectedRoute";
@@ -43,6 +44,7 @@ export default function AppRoutes() {
           <Route path={ROUTES.TEACHER.DASHBOARD} element={<TeacherDashboardPage />} />
           <Route path={ROUTES.TEACHER.CLASSROOMS} element={<TeacherClassroomsPage />} />
           <Route path={ROUTES.TEACHER.TASKS} element={<TeacherTasksPage />} />
+          <Route path="/teacher/classrooms/:classroomId/grading" element={<TeacherGradingOverviewPage />} />
         </Route>
 
         <Route element={<RoleRoute allowedRoles={["student"]} />}>

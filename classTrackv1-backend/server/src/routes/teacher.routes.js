@@ -138,6 +138,28 @@ router.patch('/classrooms/manage/:classroomId/restore', authorizePermissions(PER
  */
 router.patch('/classrooms/manage/:classroomId/regenerate-code', authorizePermissions(PERMISSIONS.CLASSROOM_MANAGE_OWN), validate(teacherValidator.classroomIdParam), controller.regenerateJoinCode);
 
+/**
+ * @openapi
+ * /v1/teacher/classrooms/manage/{classroomId}/grading-overview:
+ *   get:
+ *     tags: [Teacher]
+ *     summary: Classroom grading overview
+ *     description: >
+ *       Returns a grading overview for one classroom: classroom-level summary
+ *       (student count, task count, total/evaluated/pending submissions, average
+ *       score), per-task aggregation rows, and per-student aggregation rows.
+ *       Score precedence: teacher_score wins over ai_score (COALESCE).
+ *       Only the owning teacher can access this; deleted classrooms return 404.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters: [{ in: path, name: classroomId, required: true, schema: { type: integer } }]
+ *     responses:
+ *       200: { description: Grading overview data }
+ *       401: { description: Not authenticated }
+ *       403: { description: Not a teacher }
+ *       404: { description: Classroom not found or not owned }
+ */
+router.get('/classrooms/manage/:classroomId/grading-overview', validate(teacherValidator.classroomIdParam), controller.getGradingOverview);
+
 // Classrooms
 router.get('/classrooms',                             controller.getMyClassrooms);
 router.get('/classrooms/:classroomId/tasks',          controller.getClassroomTasks);

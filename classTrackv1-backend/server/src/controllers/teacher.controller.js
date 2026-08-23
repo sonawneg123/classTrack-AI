@@ -193,6 +193,11 @@ const regenerateJoinCode = asyncHandler(async (req, res) => {
   new ApiResponse(200, 'Join code regenerated.', data).send(res);
 });
 
+const getGradingOverview = asyncHandler(async (req, res) => {
+  const data = await teacherService.getGradingOverview(req.params.classroomId, req.user.id);
+  new ApiResponse(200, 'Grading overview retrieved.', data).send(res);
+});
+
 module.exports = {
   getMyClassrooms, createTask, updateTask, toggleTaskActive, getClassroomTasks,
   getTaskSubmissions, getSubmissionHistory, overrideScore, reanalyzeSubmission,
@@ -202,4 +207,5 @@ module.exports = {
   deleteClassroom, regenerateJoinCode,
   createTaskManaged, listTasksManaged, getTaskDetails, deleteTask, publishTask, unpublishTask,
   archiveTask, restoreTask, duplicateTask,
+  getGradingOverview,
 };

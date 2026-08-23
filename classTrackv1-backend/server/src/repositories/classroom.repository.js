@@ -165,6 +165,140 @@ class ClassroomRepository extends BaseRepository {
     await this.pool.query('UPDATE classrooms SET class_code = ? WHERE id = ?', [classCode, id]);
   }
 
+  // ---------------------------------------------------------------------------
+  // Grading overview (classroom-level aggregated grading data)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns a grading overview for one classroom:
+   *   - summary: classroom-level counts + avg score
+   *   - tasks:   per-task aggregated grading rows
+   *   - students: per-student aggregated grading rows
+   *
+   * Three SQL queries (summary, tasks, students) — no N+1.
+   * Does NOT check ownership — caller (service) must verify the classroom
+   * belongs to the requesting teacher before calling this.
+   *
+   * Score precedence: COALESCE(teacher_score, ai_score) — matches
+   * effectiveScore() in scoring.util.js and admin.repository.js.
+   *
+   * "Evaluated" definition: status = 'analyzed' OR teacher_score IS NOT NULL.
+   * "Pending"   definition: submitted but not yet evaluated.
+   * Submissions with status 'submitted' / 'analyzing' / 'failed' where
+   * teacher_score IS NULL are counted as pending.
+   */
+  async getGradingOverview(classroomId) {
+    // ── 1. Classroom-level summary ─────────────────────────────────────────
+    const [[summary]] = await this.pool.query(
+      `SELECT
+         c.id                          AS classroom_id,
+         c.name                        AS classroom_name,
+         c.subject                     AS subject,
+         c.section                     AS section,
+         c.class_code                  AS class_code,
+         c.is_active                   AS is_active,
+         (SELECT COUNT(*)
+            FROM students
+           WHERE classroom_id = c.id)  AS student_count,
+         (SELECT COUNT(*)
+            FROM tasks
+           WHERE classroom_id = c.id
+             AND deleted_at IS NULL)   AS task_count,
+         (SELECT COUNT(*)
+            FROM submissions sub
+            JOIN tasks t ON t.id = sub.task_id
+           WHERE t.classroom_id = c.id
+             AND t.deleted_at IS NULL) AS total_submissions,
+         (SELECT COUNT(*)
+            FROM submissions sub
+            JOIN tasks t ON t.id = sub.task_id
+           WHERE t.classroom_id = c.id
+             AND t.deleted_at IS NULL
+             AND (sub.status = 'analyzed' OR sub.teacher_score IS NOT NULL)
+         )                             AS evaluated_count,
+         (SELECT COUNT(*)
+            FROM submissions sub
+            JOIN tasks t ON t.id = sub.task_id
+           WHERE t.classroom_id = c.id
+             AND t.deleted_at IS NULL
+             AND sub.status NOT IN ('analyzed')
+             AND sub.teacher_score IS NULL
+         )                             AS pending_count,
+         (SELECT AVG(COALESCE(sub.teacher_score, sub.ai_score))
+            FROM submissions sub
+            JOIN tasks t ON t.id = sub.task_id
+           WHERE t.classroom_id = c.id
+             AND t.deleted_at IS NULL
+             AND (sub.status = 'analyzed' OR sub.teacher_score IS NOT NULL)
+         )                             AS avg_score
+       FROM classrooms c
+       WHERE c.id = ?`,
+      [classroomId]
+    );
+
+    // ── 2. Per-task rows ───────────────────────────────────────────────────
+    const [tasks] = await this.pool.query(
+      `SELECT
+         t.id                                          AS task_id,
+         t.title,
+         t.due_date,
+         t.max_score,
+         t.is_active,
+         t.archived_at,
+         (SELECT COUNT(*) FROM students WHERE classroom_id = t.classroom_id)
+                                                       AS student_count,
+         COUNT(sub.id)                                 AS submitted_count,
+         SUM(CASE WHEN (sub.status = 'analyzed' OR sub.teacher_score IS NOT NULL)
+                  THEN 1 ELSE 0 END)                  AS evaluated_count,
+         SUM(CASE WHEN sub.status NOT IN ('analyzed')
+                       AND sub.teacher_score IS NULL
+                  THEN 1 ELSE 0 END)                  AS pending_count,
+         AVG(CASE WHEN (sub.status = 'analyzed' OR sub.teacher_score IS NOT NULL)
+                  THEN COALESCE(sub.teacher_score, sub.ai_score)
+                  ELSE NULL END)                       AS avg_score
+       FROM tasks t
+       LEFT JOIN submissions sub ON sub.task_id = t.id
+       WHERE t.classroom_id = ?
+         AND t.deleted_at IS NULL
+       GROUP BY t.id
+       ORDER BY t.task_date DESC, t.created_at DESC`,
+      [classroomId]
+    );
+
+    // ── 3. Per-student rows ────────────────────────────────────────────────
+    const [students] = await this.pool.query(
+      `SELECT
+         s.id                                          AS student_id,
+         s.name,
+         s.username,
+         (SELECT COUNT(*) FROM tasks
+           WHERE classroom_id = s.classroom_id
+             AND deleted_at IS NULL)                   AS task_count,
+         COUNT(sub.id)                                 AS submitted_count,
+         SUM(CASE WHEN (sub.status = 'analyzed' OR sub.teacher_score IS NOT NULL)
+                  THEN 1 ELSE 0 END)                  AS evaluated_count,
+         SUM(CASE WHEN sub.status NOT IN ('analyzed')
+                       AND sub.teacher_score IS NULL
+                  THEN 1 ELSE 0 END)                  AS pending_count,
+         AVG(CASE WHEN (sub.status = 'analyzed' OR sub.teacher_score IS NOT NULL)
+                  THEN COALESCE(sub.teacher_score, sub.ai_score)
+                  ELSE NULL END)                       AS avg_score
+       FROM students s
+       LEFT JOIN submissions sub ON sub.student_id = s.id
+         AND sub.task_id IN (
+           SELECT id FROM tasks
+            WHERE classroom_id = s.classroom_id
+              AND deleted_at IS NULL
+         )
+       WHERE s.classroom_id = ?
+       GROUP BY s.id
+       ORDER BY s.name ASC`,
+      [classroomId]
+    );
+
+    return { summary, tasks, students };
+  }
+
   /**
    * One aggregated query for the whole teacher dashboard — total
    * classrooms, total students, active assignments, pending evaluations.

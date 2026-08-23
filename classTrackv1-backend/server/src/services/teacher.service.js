@@ -241,6 +241,7 @@ module.exports = {
   deleteClassroom, regenerateJoinCode,
   listTasksManaged, getTaskDetails, deleteTask, publishTask, unpublishTask,
   archiveTask, restoreTask, duplicateTask,
+  getGradingOverview,
 };
 
 // ---------------------------------------------------------------------------
@@ -584,4 +585,96 @@ async function regenerateJoinCode(classroomId, teacherId) {
   });
   logger.info('Classroom join code regenerated', { classroomId, teacherId });
   return { classCode };
+}
+
+// ---------------------------------------------------------------------------
+// Grading overview
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns an aggregated grading overview for one classroom.
+ *
+ * Authorization:
+ *   - Teacher must own the classroom (findOwnedById excludes deleted classrooms).
+ *   - Deleted classrooms → 404 (same as all other /manage/:id endpoints).
+ *
+ * Score precedence: teacher_score wins over ai_score — COALESCE(teacher_score, ai_score).
+ * This matches effectiveScore() in scoring.util.js.
+ *
+ * Evaluations state:
+ *   "evaluated" = status='analyzed' OR teacher_score IS NOT NULL
+ *   "pending"   = any submission not yet evaluated
+ *
+ * Response shape (all numeric counts are Number, avgScore is Number|null):
+ * {
+ *   summary: { classroomId, classroomName, subject, section, classCode, isActive,
+ *              studentCount, taskCount, totalSubmissions, evaluatedCount,
+ *              pendingCount, avgScore },
+ *   tasks:   [{ taskId, title, dueDate, maxScore, isPublished, isArchived,
+ *               studentCount, submittedCount, evaluatedCount, pendingCount,
+ *               avgScore, completionPct }],
+ *   students:[{ studentId, name, username, taskCount, submittedCount,
+ *               evaluatedCount, pendingCount, avgScore }]
+ * }
+ */
+async function getGradingOverview(classroomId, teacherId) {
+  // Ownership + deleted-classroom guard (same helper as all other manage endpoints)
+  await _requireOwnedActiveClassroom(classroomId, teacherId);
+
+  const { summary, tasks, students } = await classroomRepo.getGradingOverview(classroomId);
+
+  const totalStudents = Number(summary.student_count);
+
+  return {
+    summary: {
+      classroomId:      Number(summary.classroom_id),
+      classroomName:    summary.classroom_name,
+      subject:          summary.subject || null,
+      section:          summary.section || null,
+      classCode:        summary.class_code,
+      isActive:         Boolean(summary.is_active),
+      studentCount:     totalStudents,
+      taskCount:        Number(summary.task_count),
+      totalSubmissions: Number(summary.total_submissions),
+      evaluatedCount:   Number(summary.evaluated_count),
+      pendingCount:     Number(summary.pending_count),
+      avgScore:         summary.avg_score !== null && summary.avg_score !== undefined
+                          ? Number(Number(summary.avg_score).toFixed(2))
+                          : null,
+    },
+    tasks: tasks.map((t) => {
+      const submittedCount = Number(t.submitted_count);
+      const studentCount   = Number(t.student_count);
+      return {
+        taskId:          Number(t.task_id),
+        title:           t.title,
+        dueDate:         t.due_date || null,
+        maxScore:        Number(t.max_score),
+        isPublished:     Boolean(t.is_active),
+        isArchived:      Boolean(t.archived_at),
+        studentCount,
+        submittedCount,
+        evaluatedCount:  Number(t.evaluated_count),
+        pendingCount:    Number(t.pending_count),
+        avgScore:        t.avg_score !== null && t.avg_score !== undefined
+                           ? Number(Number(t.avg_score).toFixed(2))
+                           : null,
+        completionPct:   studentCount > 0
+                           ? Number(((submittedCount / studentCount) * 100).toFixed(1))
+                           : 0,
+      };
+    }),
+    students: students.map((s) => ({
+      studentId:      Number(s.student_id),
+      name:           s.name,
+      username:       s.username,
+      taskCount:      Number(s.task_count),
+      submittedCount: Number(s.submitted_count),
+      evaluatedCount: Number(s.evaluated_count),
+      pendingCount:   Number(s.pending_count),
+      avgScore:       s.avg_score !== null && s.avg_score !== undefined
+                        ? Number(Number(s.avg_score).toFixed(2))
+                        : null,
+    })),
+  };
 }

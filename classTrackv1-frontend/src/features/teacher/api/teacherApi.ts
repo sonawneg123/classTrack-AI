@@ -8,6 +8,7 @@ import type {
   TeacherDashboardStats,
 } from "@/types/classroom";
 import type { Task, TaskFormValues, TaskListParams, TaskListResult } from "@/types/task";
+import type { GradingOverview } from "@/types/grading";
 
 const ENDPOINTS = {
   DASHBOARD: "/teacher/dashboard",
@@ -16,6 +17,7 @@ const ENDPOINTS = {
   ARCHIVE: (id: number) => `/teacher/classrooms/manage/${id}/archive`,
   RESTORE: (id: number) => `/teacher/classrooms/manage/${id}/restore`,
   REGENERATE_CODE: (id: number) => `/teacher/classrooms/manage/${id}/regenerate-code`,
+  GRADING_OVERVIEW: (id: number) => `/teacher/classrooms/manage/${id}/grading-overview`,
   TASKS: "/teacher/tasks",
   TASK: (id: number) => `/teacher/tasks/${id}`,
   TASK_PUBLISH: (id: number) => `/teacher/tasks/${id}/publish`,
@@ -80,4 +82,7 @@ export const teacherApi = {
   restoreTask: (id: number) => _unwrap<void>(apiClient.patch(ENDPOINTS.TASK_RESTORE(id))),
 
   duplicateTask: (id: number) => _unwrap<{ taskId: number }>(apiClient.post(ENDPOINTS.TASK_DUPLICATE(id))),
+
+  getGradingOverview: (classroomId: number) =>
+    _unwrap<GradingOverview>(apiClient.get(ENDPOINTS.GRADING_OVERVIEW(classroomId))),
 };

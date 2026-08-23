@@ -4,7 +4,6 @@ import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import SchoolOutlinedIcon from "@mui/icons-material/SchoolOutlined";
 import MeetingRoomOutlinedIcon from "@mui/icons-material/MeetingRoomOutlined";
 import AssignmentOutlinedIcon from "@mui/icons-material/AssignmentOutlined";
-import RateReviewOutlinedIcon from "@mui/icons-material/RateReviewOutlined";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
 import InsertDriveFileOutlinedIcon from "@mui/icons-material/InsertDriveFileOutlined";
@@ -33,7 +32,7 @@ export const navConfigByRole: Record<Role, NavItem[]> = {
     { label: "Dashboard", path: ROUTES.TEACHER.DASHBOARD, icon: <DashboardOutlinedIcon sx={iconSx} /> },
     { label: "My Classrooms", path: ROUTES.TEACHER.CLASSROOMS, icon: <MeetingRoomOutlinedIcon sx={iconSx} /> },
     { label: "Assignments", path: ROUTES.TEACHER.TASKS, icon: <AssignmentOutlinedIcon sx={iconSx} /> },
-    { label: "Reviews", path: ROUTES.TEACHER.DASHBOARD, icon: <RateReviewOutlinedIcon sx={iconSx} />, disabled: true },
+    { label: "Grading", path: ROUTES.TEACHER.CLASSROOMS, icon: <BarChartOutlinedIcon sx={iconSx} /> },
     { label: "AI Evaluations", path: ROUTES.TEACHER.DASHBOARD, icon: <AutoAwesomeOutlinedIcon sx={iconSx} />, disabled: true },
   ],
   student: [

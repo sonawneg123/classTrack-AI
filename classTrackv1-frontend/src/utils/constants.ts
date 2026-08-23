@@ -24,6 +24,8 @@ export const ROUTES = {
     DASHBOARD: "/teacher/dashboard",
     CLASSROOMS: "/teacher/classrooms",
     TASKS: "/teacher/tasks",
+    GRADING_OVERVIEW: (classroomId: number | string) =>
+      `/teacher/classrooms/${classroomId}/grading`,
   },
   STUDENT: {
     ROOT: "/student",

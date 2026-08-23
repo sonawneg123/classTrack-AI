@@ -1,4 +1,5 @@
 import { useState, type MouseEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Chip,
@@ -31,11 +32,13 @@ import UnarchiveOutlinedIcon from "@mui/icons-material/UnarchiveOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import AutorenewIcon from "@mui/icons-material/Autorenew";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
 import { useSnackbar } from "notistack";
 import { DashboardCard } from "@components/cards/DashboardCard";
 import { LoadingSkeleton } from "@components/feedback/LoadingSkeleton";
 import { EmptyState } from "@components/feedback/EmptyState";
 import MeetingRoomOutlinedIcon from "@mui/icons-material/MeetingRoomOutlined";
+import { ROUTES } from "@utils/constants";
 import type {
   Classroom,
   ClassroomListParams,
@@ -79,6 +82,7 @@ export function ClassroomTable({
   onCreateFirst,
 }: ClassroomTableProps) {
   const { enqueueSnackbar } = useSnackbar();
+  const navigate = useNavigate();
   const [searchInput, setSearchInput] = useState(params.search ?? "");
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [menuTarget, setMenuTarget] = useState<Classroom | null>(null);
@@ -247,6 +251,10 @@ export function ClassroomTable({
 
       <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={closeMenu}>
         {menuTarget && [
+          <MenuItem key="grading" onClick={() => { navigate(ROUTES.TEACHER.GRADING_OVERVIEW(menuTarget.id)); closeMenu(); }}>
+            <ListItemIcon><BarChartOutlinedIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>View grading</ListItemText>
+          </MenuItem>,
           <MenuItem key="edit" onClick={() => { onEdit(menuTarget); closeMenu(); }}>
             <ListItemIcon><EditOutlinedIcon fontSize="small" /></ListItemIcon>
             <ListItemText>Edit</ListItemText>
