@@ -33,13 +33,11 @@ export const navConfigByRole: Record<Role, NavItem[]> = {
     { label: "My Classrooms", path: ROUTES.TEACHER.CLASSROOMS, icon: <MeetingRoomOutlinedIcon sx={iconSx} /> },
     { label: "Assignments", path: ROUTES.TEACHER.TASKS, icon: <AssignmentOutlinedIcon sx={iconSx} /> },
     { label: "Grading", path: ROUTES.TEACHER.CLASSROOMS, icon: <BarChartOutlinedIcon sx={iconSx} /> },
-    { label: "AI Evaluations", path: ROUTES.TEACHER.DASHBOARD, icon: <AutoAwesomeOutlinedIcon sx={iconSx} />, disabled: true },
+    { label: "AI Evaluations", path: ROUTES.TEACHER.EVALUATIONS, icon: <AutoAwesomeOutlinedIcon sx={iconSx} /> },
   ],
   student: [
     { label: "Dashboard", path: ROUTES.STUDENT.DASHBOARD, icon: <DashboardOutlinedIcon sx={iconSx} /> },
     { label: "Assignments", path: ROUTES.STUDENT.ASSIGNMENTS, icon: <AssignmentOutlinedIcon sx={iconSx} /> },
-    { label: "Reports", path: ROUTES.STUDENT.DASHBOARD, icon: <BarChartOutlinedIcon sx={iconSx} />, disabled: true },
-    { label: "AI Feedback", path: ROUTES.STUDENT.DASHBOARD, icon: <AutoAwesomeOutlinedIcon sx={iconSx} />, disabled: true },
   ],
 };
 

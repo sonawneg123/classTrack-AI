@@ -77,8 +77,9 @@ const config = {
 
   groq: {
     apiKey:      process.env.GROQ_API_KEY,
-    textModel:   process.env.GROQ_TEXT_MODEL   || 'openai/gpt-oss-120b',
-    visionModel: process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct',
+    // Default models are Groq-hosted. Override via GROQ_TEXT_MODEL / GROQ_VISION_MODEL env vars.
+    textModel:   process.env.GROQ_TEXT_MODEL   || 'llama3-70b-8192',
+    visionModel: process.env.GROQ_VISION_MODEL || 'llava-v1.5-7b-4096-preview',
   },
 
   upload: {

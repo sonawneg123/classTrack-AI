@@ -152,6 +152,27 @@ async function getTaskSubmissions(taskId, teacherId) {
   return { task, roster: students.map((s) => ({ student: s, submission: byStudent[s.id] || null })) };
 }
 
+async function getSubmission(submissionId, teacherId) {
+  const sub = await submissionRepo.belongsToTeacherClassroom(submissionId, teacherId);
+  if (!sub) throw ApiError.notFound('Submission not found.');
+  sub.effective_score = effectiveScore(sub);
+  return sub;
+}
+
+/**
+ * Returns all pending evaluations for the teacher:
+ * submissions in their classrooms with status IN ('submitted','analyzing','failed')
+ * that have no teacher_score yet.
+ * Ownership is fully enforced at the repository level.
+ */
+async function getPendingEvaluations(teacherId) {
+  const rows = await submissionRepo.listPendingForTeacher(teacherId);
+  return rows.map((r) => ({
+    ...r,
+    effective_score: effectiveScore(r),
+  }));
+}
+
 async function getSubmissionHistory(submissionId, teacherId) {
   const sub = await submissionRepo.belongsToTeacherClassroom(submissionId, teacherId);
   if (!sub) throw ApiError.notFound('Submission not found.');
@@ -171,11 +192,17 @@ async function overrideScore({ submissionId, teacherId, teacherScore, teacherFee
 
   await submissionRepo.overrideScore(submissionId, teacherId, teacherScore ?? null, teacherFeedback);
 
+  const effectiveTeacherScore = teacherScore !== null && teacherScore !== undefined ? Number(teacherScore) : null;
+  const scoreText = effectiveTeacherScore !== null
+    ? ` Teacher score: ${effectiveTeacherScore}/${sub.max_score}.`
+    : '';
+  const feedbackText = teacherFeedback ? ` "${teacherFeedback}"` : '';
+
   await notifRepo.insertOne({
     recipientType: 'student', recipientId: sub.student_id, taskId: sub.task_id,
     type:    'score_overridden',
-    title:   'Your teacher reviewed your grade',
-    message: teacherFeedback || 'Your teacher added a note to your submission.',
+    title:   'Your assignment has been graded',
+    message: `Your assignment "${sub.task_title}" has been graded by your teacher.${scoreText}${feedbackText}`,
   });
 
   await auditRepo.insert({
@@ -234,7 +261,8 @@ async function buildClassroomReportData(classroomId, teacherId) {
 
 module.exports = {
   getMyClassrooms, createTask, updateTask, toggleTaskActive, getClassroomTasks,
-  getTaskSubmissions, getSubmissionHistory, overrideScore,
+  getTaskSubmissions, getSubmission, getSubmissionHistory, overrideScore,
+  getPendingEvaluations,
   resetStudentPassword, buildClassroomReportData,
   getDashboardStats, listClassroomsManaged, getClassroomDetails,
   createClassroom, updateClassroom, archiveClassroom, restoreClassroom,

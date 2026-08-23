@@ -60,6 +60,7 @@ export function ThemeModeProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useThemeMode(): ThemeModeContextValue {
   const ctx = useContext(ThemeModeContext);
   if (!ctx) {

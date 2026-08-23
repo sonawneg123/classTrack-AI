@@ -1,44 +1,55 @@
 import type { PaletteOptions } from "@mui/material/styles";
 
 /**
- * ClassTrack AI design tokens.
- * Primary: deep academic navy — trust, structure, institutional weight.
- * Secondary: signal teal — reserved for AI-assisted features & highlights.
- * Semantic colors follow MUI conventions so status chips/alerts stay consistent.
+ * ClassTrack AI design tokens — Notebook / Classroom visual identity.
+ *
+ * Primary: deep crimson red — the dominant classroom accent (sidebar, headings,
+ *   primary buttons). Matches the Admin screenshot reference.
+ * Secondary: academic navy — structural headings, data emphasis.
+ * Background: warm paper off-white — notebook feel throughout.
  */
 export const brand = {
+  // Deep red classroom identity
+  red800:  "#9B1C1C",
+  red700:  "#B91C1C",
+  red600:  "#C53030",  // ← primary brand accent (sidebar, buttons)
+  red500:  "#DC2626",
+  red100:  "#FEE2E2",
+  // Structural navy
   navy900: "#0B1220",
   navy800: "#111C34",
   navy700: "#14213D",
   navy600: "#1E2E52",
   navy100: "#E7EBF5",
-  teal500: "#0FA3A3",
-  teal400: "#3DC1C1",
-  amber500: "#E0A82E",
-  coral500: "#E0533D",
+  // Warm paper
+  paper:   "#FAFAF7",
+  paperInner: "#F7F6F2",
+  // Neutrals
   slate500: "#5A6B87",
+  amber500: "#D97706",
 };
 
 export const lightPalette: PaletteOptions = {
   mode: "light",
   primary: {
+    main: brand.red600,
+    light: brand.red500,
+    dark: brand.red800,
+    contrastText: "#FFFFFF",
+  },
+  secondary: {
     main: brand.navy700,
     light: brand.navy600,
     dark: brand.navy900,
     contrastText: "#FFFFFF",
   },
-  secondary: {
-    main: brand.teal500,
-    light: brand.teal400,
-    dark: "#0B7A7A",
-    contrastText: "#FFFFFF",
-  },
-  error: { main: brand.coral500 },
+  error: { main: brand.red500 },
   warning: { main: brand.amber500 },
   success: { main: "#2E9E5B" },
-  info: { main: brand.teal400 },
+  info: { main: "#0369A1" },
   background: {
-    default: "#F5F7FB",
+    // Warm off-white notebook paper background for the whole app
+    default: brand.paper,
     paper: "#FFFFFF",
   },
   text: {
@@ -51,19 +62,19 @@ export const lightPalette: PaletteOptions = {
 export const darkPalette: PaletteOptions = {
   mode: "dark",
   primary: {
-    main: brand.teal400,
-    light: brand.teal400,
-    dark: brand.teal500,
+    main: "#F87171",    // soft red — readable on dark backgrounds
+    light: "#FCA5A5",
+    dark: "#EF4444",
     contrastText: brand.navy900,
   },
   secondary: {
-    main: brand.teal500,
-    contrastText: "#FFFFFF",
+    main: brand.navy100,
+    contrastText: brand.navy900,
   },
   error: { main: "#F0685A" },
   warning: { main: brand.amber500 },
   success: { main: "#4CBB7D" },
-  info: { main: brand.teal400 },
+  info: { main: "#38BDF8" },
   background: {
     default: brand.navy900,
     paper: brand.navy800,

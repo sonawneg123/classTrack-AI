@@ -304,7 +304,28 @@ router.post('/tasks/:taskId/duplicate',  authorizePermissions(PERMISSIONS.TASK_C
 
 router.get('/tasks/:taskId/submissions',              controller.getTaskSubmissions);
 
+// Pending evaluations (cross-classroom view)
+/**
+ * @openapi
+ * /v1/teacher/pending-evaluations:
+ *   get:
+ *     tags: [Teacher]
+ *     summary: List pending evaluations across all the teacher's classrooms
+ *     description: >
+ *       Returns all student submissions that have no teacher_score yet (status
+ *       IN ('submitted', 'analyzing', 'analyzed', 'failed')). Ownership is
+ *       enforced at the query level — the teacher only sees their own students'
+ *       submissions. A submission is removed only once teacher_score is set.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: List of pending submissions }
+ *       401: { description: Not authenticated }
+ *       403: { description: Not a teacher }
+ */
+router.get('/pending-evaluations',                    controller.getPendingEvaluations);
+
 // Submissions
+router.get('/submissions/:submissionId',              controller.getSubmission);
 router.get('/submissions/:submissionId/history',      controller.getSubmissionHistory);
 router.post('/submissions/:submissionId/reanalyze',   controller.reanalyzeSubmission);
 router.patch('/submissions/:submissionId/override-score', validate(teacherValidator.overrideScore), controller.overrideScore);

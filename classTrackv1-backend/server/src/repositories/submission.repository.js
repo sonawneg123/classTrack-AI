@@ -131,13 +131,79 @@ class SubmissionRepository extends BaseRepository {
 
   async belongsToTeacherClassroom(submissionId, teacherId) {
     const [rows] = await this.pool.query(
-      `SELECT sub.*, t.max_score FROM submissions sub
+      `SELECT sub.*,
+              t.id        AS task_id,
+              t.title     AS task_title,
+              t.description AS task_description,
+              t.max_score,
+              t.classroom_id,
+              s.name      AS student_name,
+              s.username  AS student_username
+       FROM submissions sub
        JOIN tasks t ON t.id = sub.task_id
        JOIN classrooms c ON c.id = t.classroom_id
+       JOIN students s ON s.id = sub.student_id
        WHERE sub.id = ? AND c.teacher_id = ?`,
       [submissionId, teacherId]
     );
     return rows[0] || null;
+  }
+
+  /**
+   * Returns all pending evaluations for the teacher:
+   * every submission across their classrooms where the teacher has not yet
+   * assigned a score (teacher_score IS NULL), regardless of AI status.
+   *
+   *  'submitted'  — student submitted; AI queue not yet started
+   *  'analyzing'  — AI evaluation in progress
+   *  'analyzed'   — AI is done; teacher review still required  ← KEY FIX
+   *  'failed'     — AI failed; teacher must evaluate manually
+   *
+   * A submission is removed from this list only once the teacher explicitly
+   * assigns a score (overrideScore sets teacher_score to a non-NULL value).
+   *
+   * Ownership is enforced via the JOIN chain: classroom must belong to the
+   * requesting teacher and must not be soft-deleted.
+   *
+   * Returns submissions enriched with task title, max_score, classroom name,
+   * student name/username — everything needed for the pending evaluations page.
+   */
+  async listPendingForTeacher(teacherId) {
+    const [rows] = await this.pool.query(
+      `SELECT
+         sub.id,
+         sub.task_id,
+         sub.student_id,
+         sub.attempt_number,
+         sub.file_path,
+         sub.original_filename,
+         sub.file_type,
+         sub.typed_text,
+         sub.status,
+         sub.ai_score,
+         sub.ai_summary,
+         sub.teacher_score,
+         sub.teacher_feedback,
+         sub.submitted_at,
+         sub.analyzed_at,
+         t.title          AS task_title,
+         t.max_score,
+         t.classroom_id,
+         c.name           AS classroom_name,
+         s.name           AS student_name,
+         s.username       AS student_username
+       FROM submissions sub
+       JOIN tasks      t ON t.id  = sub.task_id
+       JOIN classrooms c ON c.id  = t.classroom_id
+       JOIN students   s ON s.id  = sub.student_id
+       WHERE c.teacher_id  = ?
+         AND c.deleted_at  IS NULL
+         AND t.deleted_at  IS NULL
+         AND sub.teacher_score IS NULL
+       ORDER BY sub.submitted_at DESC`,
+      [teacherId]
+    );
+    return rows;
   }
 }
 

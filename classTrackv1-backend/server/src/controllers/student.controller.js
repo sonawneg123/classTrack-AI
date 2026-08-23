@@ -19,7 +19,10 @@ const submitTask = asyncHandler(async (req, res) => {
     file:        req.file,
     typedText:   req.body.typedText,
   });
-  new ApiResponse(201, 'Submission received! AI is reviewing it now.', data).send(res);
+  const msg = data.aiQueued
+    ? 'Submission received! AI is reviewing it now.'
+    : 'Submission received! Your teacher will review it.';
+  new ApiResponse(201, msg, data).send(res);
 });
 
 const getMySubmissions = asyncHandler(async (req, res) => {

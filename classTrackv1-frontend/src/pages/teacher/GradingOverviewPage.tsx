@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   Alert,
   Box,
   Chip,
-  Grid,
   LinearProgress,
   Stack,
   Tab,
@@ -18,19 +17,20 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
+import Grid from "@mui/material/Grid2";
 import PeopleOutlinedIcon from "@mui/icons-material/PeopleOutlined";
 import AssignmentOutlinedIcon from "@mui/icons-material/AssignmentOutlined";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import HourglassEmptyOutlinedIcon from "@mui/icons-material/HourglassEmptyOutlined";
 import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
 import { DashboardLayout } from "@layouts/DashboardLayout";
-import { DashboardCard } from "@components/cards/DashboardCard";
-import { StatCard } from "@components/cards/StatCard";
+import { NotebookCard, NotebookStatCard } from "@components/notebook";
 import { LoadingSkeleton } from "@components/feedback/LoadingSkeleton";
 import { EmptyState } from "@components/feedback/EmptyState";
 import { ErrorBoundary } from "@components/feedback/ErrorBoundary";
 import { useGradingOverview } from "@features/teacher/hooks/useGradingOverview";
 import { ROUTES } from "@utils/constants";
+import RateReviewOutlinedIcon from "@mui/icons-material/RateReviewOutlined";
 import type { GradingTaskRow, GradingStudentRow } from "@/types/grading";
 
 // ---------------------------------------------------------------------------
@@ -43,11 +43,11 @@ function scoreLabel(score: number | null, maxScore?: number): string {
   return score.toFixed(1);
 }
 
-function completionColor(pct: number): "success" | "warning" | "error" | "default" {
+function completionColor(pct: number): "success" | "warning" | "error" | "primary" {
   if (pct >= 75) return "success";
   if (pct >= 40) return "warning";
   if (pct > 0) return "error";
-  return "default";
+  return "primary";
 }
 
 function statusChip(submitted: number, evaluated: number, pending: number) {
@@ -65,6 +65,7 @@ function statusChip(submitted: number, evaluated: number, pending: number) {
 // ---------------------------------------------------------------------------
 
 function TasksTab({ tasks }: { tasks: GradingTaskRow[] }) {
+  const navigate = useNavigate();
   if (tasks.length === 0) {
     return (
       <EmptyState
@@ -88,11 +89,17 @@ function TasksTab({ tasks }: { tasks: GradingTaskRow[] }) {
             <TableCell align="center">Pending</TableCell>
             <TableCell align="center">Avg score</TableCell>
             <TableCell align="center">Completion</TableCell>
+            <TableCell align="center">Review</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {tasks.map((task) => (
-            <TableRow key={task.taskId} hover>
+            <TableRow
+              key={task.taskId}
+              hover
+              sx={{ cursor: "pointer" }}
+              onClick={() => navigate(ROUTES.TEACHER.TASK_SUBMISSIONS(task.taskId))}
+            >
               <TableCell>
                 <Stack spacing={0.25}>
                   <Typography variant="body2" fontWeight={600}>
@@ -163,6 +170,21 @@ function TasksTab({ tasks }: { tasks: GradingTaskRow[] }) {
                       {task.completionPct}%
                     </Typography>
                   </Box>
+                </Tooltip>
+              </TableCell>
+              <TableCell align="center" onClick={(e) => e.stopPropagation()}>
+                <Tooltip title="Review submissions">
+                  <Stack direction="row" spacing={0.5} justifyContent="center">
+                    <Chip
+                      label={`${task.submittedCount} submission${task.submittedCount !== 1 ? "s" : ""}`}
+                      size="small"
+                      color={task.submittedCount > 0 ? "primary" : "default"}
+                      variant={task.submittedCount > 0 ? "filled" : "outlined"}
+                      icon={<RateReviewOutlinedIcon sx={{ fontSize: 14 }} />}
+                      onClick={() => navigate(ROUTES.TEACHER.TASK_SUBMISSIONS(task.taskId))}
+                      sx={{ cursor: "pointer" }}
+                    />
+                  </Stack>
                 </Tooltip>
               </TableCell>
             </TableRow>
@@ -293,16 +315,16 @@ export default function GradingOverviewPage() {
           <Grid container spacing={2} sx={{ mb: 3 }}>
             {Array.from({ length: 5 }).map((_, i) => (
               <Grid key={i} size={{ xs: 12, sm: 6, md: 4, lg: 2.4 }}>
-                <DashboardCard>
+                <NotebookCard>
                   <LoadingSkeleton variant="card" />
-                </DashboardCard>
+                </NotebookCard>
               </Grid>
             ))}
           </Grid>
         ) : data ? (
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid size={{ xs: 12, sm: 6, md: 4, lg: 2.4 }}>
-              <StatCard
+              <NotebookStatCard
                 label="Students"
                 value={data.summary.studentCount}
                 icon={<PeopleOutlinedIcon />}
@@ -310,7 +332,7 @@ export default function GradingOverviewPage() {
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 4, lg: 2.4 }}>
-              <StatCard
+              <NotebookStatCard
                 label="Assignments"
                 value={data.summary.taskCount}
                 icon={<AssignmentOutlinedIcon />}
@@ -318,7 +340,7 @@ export default function GradingOverviewPage() {
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 4, lg: 2.4 }}>
-              <StatCard
+              <NotebookStatCard
                 label="Total submissions"
                 value={data.summary.totalSubmissions}
                 icon={<AssignmentOutlinedIcon />}
@@ -326,7 +348,7 @@ export default function GradingOverviewPage() {
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 4, lg: 2.4 }}>
-              <StatCard
+              <NotebookStatCard
                 label="Evaluated"
                 value={data.summary.evaluatedCount}
                 icon={<CheckCircleOutlineIcon />}
@@ -334,7 +356,7 @@ export default function GradingOverviewPage() {
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 4, lg: 2.4 }}>
-              <StatCard
+              <NotebookStatCard
                 label="Pending review"
                 value={data.summary.pendingCount}
                 icon={<HourglassEmptyOutlinedIcon />}
@@ -346,7 +368,7 @@ export default function GradingOverviewPage() {
 
         {/* ── Avg score card (shown separately so it's prominent) ──────── */}
         {data && (
-          <DashboardCard
+          <NotebookCard
             title="Average score"
             subtitle="Based on evaluated submissions (teacher score overrides AI score)"
             sx={{ mb: 3 }}
@@ -369,11 +391,11 @@ export default function GradingOverviewPage() {
                 </Typography>
               )}
             </Stack>
-          </DashboardCard>
+          </NotebookCard>
         )}
 
         {/* ── Tabs: By Assignment / By Student ────────────────────────── */}
-        <DashboardCard disablePadding>
+        <NotebookCard disablePadding>
           <Box sx={{ borderBottom: 1, borderColor: "divider", px: 2 }}>
             <Tabs
               value={activeTab}
@@ -403,7 +425,7 @@ export default function GradingOverviewPage() {
               />
             ) : null}
           </Box>
-        </DashboardCard>
+        </NotebookCard>
       </ErrorBoundary>
     </DashboardLayout>
   );

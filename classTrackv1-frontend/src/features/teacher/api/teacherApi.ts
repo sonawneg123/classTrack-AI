@@ -8,7 +8,7 @@ import type {
   TeacherDashboardStats,
 } from "@/types/classroom";
 import type { Task, TaskFormValues, TaskListParams, TaskListResult } from "@/types/task";
-import type { GradingOverview } from "@/types/grading";
+import type { GradingOverview, PendingEvaluation, TaskSubmissionRoster, TeacherSubmission } from "@/types/grading";
 
 const ENDPOINTS = {
   DASHBOARD: "/teacher/dashboard",
@@ -18,6 +18,11 @@ const ENDPOINTS = {
   RESTORE: (id: number) => `/teacher/classrooms/manage/${id}/restore`,
   REGENERATE_CODE: (id: number) => `/teacher/classrooms/manage/${id}/regenerate-code`,
   GRADING_OVERVIEW: (id: number) => `/teacher/classrooms/manage/${id}/grading-overview`,
+  TASK_SUBMISSIONS: (taskId: number) => `/teacher/tasks/${taskId}/submissions`,
+  SUBMISSION: (submissionId: number) => `/teacher/submissions/${submissionId}`,
+  SUBMISSION_HISTORY: (submissionId: number) => `/teacher/submissions/${submissionId}/history`,
+  OVERRIDE_SCORE: (submissionId: number) => `/teacher/submissions/${submissionId}/override-score`,
+  PENDING_EVALUATIONS: "/teacher/pending-evaluations",
   TASKS: "/teacher/tasks",
   TASK: (id: number) => `/teacher/tasks/${id}`,
   TASK_PUBLISH: (id: number) => `/teacher/tasks/${id}/publish`,
@@ -85,4 +90,19 @@ export const teacherApi = {
 
   getGradingOverview: (classroomId: number) =>
     _unwrap<GradingOverview>(apiClient.get(ENDPOINTS.GRADING_OVERVIEW(classroomId))),
+
+  getTaskSubmissions: (taskId: number) =>
+    _unwrap<TaskSubmissionRoster>(apiClient.get(ENDPOINTS.TASK_SUBMISSIONS(taskId))),
+
+  getSubmission: (submissionId: number) =>
+    _unwrap<{ submission: TeacherSubmission }>(apiClient.get(ENDPOINTS.SUBMISSION(submissionId))),
+
+  overrideScore: (submissionId: number, payload: { teacherScore: number | null; teacherFeedback?: string }) =>
+    _unwrap<void>(apiClient.patch(ENDPOINTS.OVERRIDE_SCORE(submissionId), payload)),
+
+  getSubmissionVersionHistory: (submissionId: number) =>
+    _unwrap<{ versions: unknown[] }>(apiClient.get(ENDPOINTS.SUBMISSION_HISTORY(submissionId))),
+
+  getPendingEvaluations: () =>
+    _unwrap<{ submissions: PendingEvaluation[] }>(apiClient.get(ENDPOINTS.PENDING_EVALUATIONS)),
 };

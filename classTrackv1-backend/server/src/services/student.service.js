@@ -33,6 +33,11 @@ function _assignmentStatus(task) {
   return new Date(task.due_date) < today ? 'overdue' : 'upcoming';
 }
 
+/** Normalises the DB tinyint(1) to a real boolean. */
+function _aiEnabled(task) {
+  return task.ai_evaluation_enabled === 1 || task.ai_evaluation_enabled === true;
+}
+
 async function getMyTasks(studentId, classroomId) {
   const tasks = await taskRepo.listForStudent(classroomId, studentId);
   return tasks.map((t) => ({
@@ -49,8 +54,11 @@ async function _performAnalysis(submissionId, task, { fileType, filePath, typedT
   let result;
   let extractedText = null;
 
+  logger.info('[AI] Content extraction started', { submissionId, fileType });
+
   if (fileType === 'image') {
     const dataUrl = toBase64DataUrl(filePath, 'image/jpeg');
+    logger.info('[AI] Groq vision request started', { submissionId });
     result        = await analyzeImage({ title: task.title, description: task.description, maxScore: task.max_score, base64DataUrl: dataUrl });
     extractedText = result.transcribedText;
   } else {
@@ -59,20 +67,34 @@ async function _performAnalysis(submissionId, task, { fileType, filePath, typedT
     if (fileType === 'pdf') text = await extractFromPdf(filePath);
     if (!text || !text.trim()) throw new Error('Could not read any text from the submission.');
     extractedText = text;
+    logger.info('[AI] Groq text request started', { submissionId, textLength: text.length });
     result = await analyzeText({ title: task.title, description: task.description, maxScore: task.max_score, studentText: text });
   }
 
+  logger.info('[AI] Groq response received — persisting result', { submissionId, score: result.score });
   await submissionRepo.markAnalyzed(submissionId, result, extractedText);
+  logger.info('[AI] Submission marked analyzed', { submissionId });
   return result;
 }
 
 function _queueAnalysis(submissionId, studentId, task, fileInfo) {
+  // ── Guard: only queue AI when the task has it enabled ──────────────────
+  if (!_aiEnabled(task)) {
+    logger.info('[AI] Skipped — ai_evaluation_enabled=false', { submissionId, taskId: task.id });
+    return;
+  }
+
+  logger.info('[AI] Submission received — queuing evaluation', { submissionId, taskId: task.id });
   submissionRepo.markAnalyzing(submissionId).catch(() => {});
 
   enqueue(
-    () => _performAnalysis(submissionId, task, fileInfo),
+    () => {
+      logger.info('[AI] Worker started', { submissionId });
+      return _performAnalysis(submissionId, task, fileInfo);
+    },
     `analyze-${submissionId}`,
-    async () => {
+    async (err) => {
+      logger.error('[AI] Evaluation permanently failed', { submissionId, error: err?.message });
       await submissionRepo.markFailed(submissionId);
       await notifRepo.insertOne({
         recipientType: 'student', recipientId: studentId, taskId: task.id,
@@ -83,6 +105,7 @@ function _queueAnalysis(submissionId, studentId, task, fileInfo) {
     }
   )
     .then(async () => {
+      logger.info('[AI] Evaluation complete — notifying student', { submissionId });
       await notifRepo.insertOne({
         recipientType: 'student', recipientId: studentId, taskId: task.id,
         type:    'submission_graded',
@@ -131,8 +154,9 @@ async function submitTask({ taskId, studentId, classroomId, file, typedText }) {
   }
 
   logger.info('Task submitted', { submissionId, taskId, studentId, attempt: attemptNumber });
+  const aiQueued = _aiEnabled(task);
   _queueAnalysis(submissionId, studentId, task, { fileType, filePath, typedText });
-  return { submissionId, attemptNumber };
+  return { submissionId, attemptNumber, aiQueued };
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +168,6 @@ async function getMySubmissions(studentId) {
 }
 
 async function getMySubmissionHistory(submissionId, studentId) {
-  const check = await submissionRepo.findByTaskAndStudent(null, studentId);
   const sub   = await require('../database/connection').pool
     .query('SELECT id FROM submissions WHERE id = ? AND student_id = ?', [submissionId, studentId])
     .then(([rows]) => rows[0]);

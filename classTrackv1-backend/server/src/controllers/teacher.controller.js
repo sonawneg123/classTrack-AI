@@ -89,6 +89,16 @@ const getTaskSubmissions = asyncHandler(async (req, res) => {
   new ApiResponse(200, 'Submissions retrieved.', data).send(res);
 });
 
+const getSubmission = asyncHandler(async (req, res) => {
+  const data = await teacherService.getSubmission(req.params.submissionId, req.user.id);
+  new ApiResponse(200, 'Submission retrieved.', { submission: data }).send(res);
+});
+
+const getPendingEvaluations = asyncHandler(async (req, res) => {
+  const data = await teacherService.getPendingEvaluations(req.user.id);
+  new ApiResponse(200, 'Pending evaluations retrieved.', { submissions: data }).send(res);
+});
+
 const getSubmissionHistory = asyncHandler(async (req, res) => {
   const data = await teacherService.getSubmissionHistory(req.params.submissionId, req.user.id);
   new ApiResponse(200, 'History retrieved.', { versions: data }).send(res);
@@ -200,7 +210,8 @@ const getGradingOverview = asyncHandler(async (req, res) => {
 
 module.exports = {
   getMyClassrooms, createTask, updateTask, toggleTaskActive, getClassroomTasks,
-  getTaskSubmissions, getSubmissionHistory, overrideScore, reanalyzeSubmission,
+  getTaskSubmissions, getSubmission, getSubmissionHistory, overrideScore, reanalyzeSubmission,
+  getPendingEvaluations,
   resetStudentPassword, downloadClassroomReport, downloadClassroomCsv,
   getDashboardStats, listClassroomsManaged, getClassroomDetails,
   createClassroom, updateClassroom, archiveClassroom, restoreClassroom,

@@ -1,16 +1,17 @@
-import { Box, Grid, List, ListItem, ListItemText, Typography } from "@mui/material";
+import { Box, List, ListItem, ListItemText, Typography } from "@mui/material";
+import Grid from "@mui/material/Grid2";
 import SchoolOutlinedIcon from "@mui/icons-material/SchoolOutlined";
 import MeetingRoomOutlinedIcon from "@mui/icons-material/MeetingRoomOutlined";
 import AssignmentOutlinedIcon from "@mui/icons-material/AssignmentOutlined";
 import RateReviewOutlinedIcon from "@mui/icons-material/RateReviewOutlined";
 import InsertChartOutlinedIcon from "@mui/icons-material/InsertChartOutlined";
+import { useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@layouts/DashboardLayout";
-import { StatCard } from "@components/cards/StatCard";
-import { DashboardCard } from "@components/cards/DashboardCard";
-import { ChartContainer } from "@components/charts/ChartContainer";
+import { NotebookCard, NotebookStatCard } from "@components/notebook";
 import { LoadingSkeleton } from "@components/feedback/LoadingSkeleton";
 import { EmptyState } from "@components/feedback/EmptyState";
 import { useTeacherDashboard } from "@features/teacher/hooks/useTeacherDashboard";
+import { ROUTES } from "@utils/constants";
 
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -23,24 +24,25 @@ function timeAgo(iso: string): string {
 }
 
 /**
- * Real Teacher Dashboard — stats, recent activity, and trend chart
- * placeholders, all backed by GET /v1/teacher/dashboard (a single
- * aggregated backend call, no N+1).
+ * Teacher Dashboard — notebook-themed, consistent with the Student dashboard
+ * and Admin reference screenshots. Backed by GET /v1/teacher/dashboard.
  */
 export default function TeacherDashboardPage() {
   const { data, isLoading } = useTeacherDashboard();
+  const navigate = useNavigate();
 
   return (
     <DashboardLayout
       title="Dashboard"
       description="An overview of your classrooms and recent activity."
     >
-      <Grid container spacing={2.5} sx={{ mb: 3 }}>
+      {/* ── Stat cards ────────────────────────────────────────────────── */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           {isLoading ? (
-            <DashboardCard><LoadingSkeleton variant="card" /></DashboardCard>
+            <NotebookCard><LoadingSkeleton variant="card" /></NotebookCard>
           ) : (
-            <StatCard
+            <NotebookStatCard
               label="Total Classrooms"
               value={data?.totalClassrooms ?? 0}
               icon={<MeetingRoomOutlinedIcon />}
@@ -50,9 +52,9 @@ export default function TeacherDashboardPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           {isLoading ? (
-            <DashboardCard><LoadingSkeleton variant="card" /></DashboardCard>
+            <NotebookCard><LoadingSkeleton variant="card" /></NotebookCard>
           ) : (
-            <StatCard
+            <NotebookStatCard
               label="Total Students"
               value={data?.totalStudents ?? 0}
               icon={<SchoolOutlinedIcon />}
@@ -62,9 +64,9 @@ export default function TeacherDashboardPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           {isLoading ? (
-            <DashboardCard><LoadingSkeleton variant="card" /></DashboardCard>
+            <NotebookCard><LoadingSkeleton variant="card" /></NotebookCard>
           ) : (
-            <StatCard
+            <NotebookStatCard
               label="Active Assignments"
               value={data?.activeAssignments ?? 0}
               icon={<AssignmentOutlinedIcon />}
@@ -74,32 +76,40 @@ export default function TeacherDashboardPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           {isLoading ? (
-            <DashboardCard><LoadingSkeleton variant="card" /></DashboardCard>
+            <NotebookCard><LoadingSkeleton variant="card" /></NotebookCard>
           ) : (
-            <StatCard
+            <NotebookStatCard
               label="Pending Evaluations"
               value={data?.pendingEvaluations ?? 0}
               icon={<RateReviewOutlinedIcon />}
-              color="warning"
+              color={data?.pendingEvaluations ? "warning" : "success"}
+              onClick={() => navigate(ROUTES.TEACHER.EVALUATIONS)}
             />
           )}
         </Grid>
       </Grid>
 
+      {/* ── Recent activity ───────────────────────────────────────────── */}
       <Grid container spacing={2.5}>
         <Grid size={{ xs: 12, md: 7 }}>
-          <ChartContainer
-            title="Assignment activity"
-            subtitle="Coming soon"
-            isEmpty
-            height={260}
-          >
-            <Box />
-          </ChartContainer>
+          <NotebookCard title="Assignment Activity" subtitle="Coming soon — submission trends will appear here" sx={{ minHeight: 260 }}>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: 200,
+              }}
+            >
+              <Typography variant="body2" color="text.secondary">
+                Chart coming soon
+              </Typography>
+            </Box>
+          </NotebookCard>
         </Grid>
 
         <Grid size={{ xs: 12, md: 5 }}>
-          <DashboardCard title="Recent Activity" subtitle="Latest posts and submissions" disablePadding>
+          <NotebookCard title="Recent Activity" subtitle="Latest posts and submissions" disablePadding>
             {isLoading ? (
               <LoadingSkeleton variant="list" rows={4} />
             ) : !data?.recentActivity || data.recentActivity.length === 0 ? (
@@ -129,7 +139,7 @@ export default function TeacherDashboardPage() {
                 ))}
               </List>
             )}
-          </DashboardCard>
+          </NotebookCard>
         </Grid>
       </Grid>
     </DashboardLayout>

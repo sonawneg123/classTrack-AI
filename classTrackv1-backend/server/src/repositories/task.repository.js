@@ -23,7 +23,11 @@ class TaskRepository extends BaseRepository {
 
   async listForStudent(classroomId, studentId) {
     const [rows] = await this.pool.query(
-      `SELECT t.*, sub.id AS submission_id, sub.status AS submission_status,
+      `SELECT t.id, t.classroom_id, t.title, t.description, t.instructions,
+              t.max_score, t.due_date, t.task_date, t.is_active,
+              t.ai_evaluation_enabled, t.allowed_file_types,
+              t.late_submission_allowed, t.max_file_size_mb,
+              sub.id AS submission_id, sub.status AS submission_status,
               sub.ai_score, sub.teacher_score, sub.attempt_number
        FROM tasks t
        LEFT JOIN submissions sub ON sub.task_id = t.id AND sub.student_id = ?

@@ -11,13 +11,13 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
-  Grid,
   MenuItem,
   Stack,
   Switch,
   TextField,
   Typography,
 } from "@mui/material";
+import Grid from "@mui/material/Grid2";
 import { ALLOWED_FILE_TYPES, taskFormSchema, type TaskFormSchema } from "../schemas/taskSchema";
 import { useClassrooms } from "../hooks/useClassrooms";
 import type { Task } from "@/types/task";

@@ -24,13 +24,19 @@ export const ROUTES = {
     DASHBOARD: "/teacher/dashboard",
     CLASSROOMS: "/teacher/classrooms",
     TASKS: "/teacher/tasks",
+    EVALUATIONS: "/teacher/evaluations",
     GRADING_OVERVIEW: (classroomId: number | string) =>
       `/teacher/classrooms/${classroomId}/grading`,
+    TASK_SUBMISSIONS: (taskId: number | string) =>
+      `/teacher/tasks/${taskId}/submissions`,
+    SUBMISSION_DETAIL: (submissionId: number | string) =>
+      `/teacher/submissions/${submissionId}`,
   },
   STUDENT: {
     ROOT: "/student",
     DASHBOARD: "/student/dashboard",
     ASSIGNMENTS: "/student/assignments",
+    ASSIGNMENT_DETAIL: (taskId: number | string) => `/student/assignments/${taskId}`,
   },
 } as const;
 

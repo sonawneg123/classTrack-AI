@@ -319,9 +319,11 @@ class ClassroomRepository extends BaseRepository {
            WHERE c.teacher_id = ? AND c.deleted_at IS NULL AND t.is_active = 1) AS active_assignments,
          (SELECT COUNT(*)
             FROM submissions sub
-            JOIN tasks t      ON t.id = sub.task_id
-            JOIN classrooms c ON c.id = t.classroom_id
-           WHERE c.teacher_id = ? AND c.deleted_at IS NULL
+            JOIN tasks      t ON t.id  = sub.task_id
+            JOIN classrooms c ON c.id  = t.classroom_id
+           WHERE c.teacher_id    = ?
+             AND c.deleted_at   IS NULL
+             AND t.deleted_at   IS NULL
              AND sub.teacher_score IS NULL) AS pending_evaluations`,
       [teacherId, teacherId, teacherId, teacherId]
     );
