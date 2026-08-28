@@ -1,5 +1,7 @@
 /**
  * server/src/repositories/student.repository.js
+ *
+ * PostgreSQL-compatible. Parameter placeholders are $1, $2, …
  */
 const BaseRepository = require('./base.repository');
 
@@ -11,7 +13,7 @@ class StudentRepository extends BaseRepository {
       `SELECT s.*, c.name AS classroom_name
        FROM students s
        JOIN classrooms c ON c.id = s.classroom_id
-       WHERE s.username = ? LIMIT 1`,
+       WHERE s.username = $1 LIMIT 1`,
       [username.trim().toLowerCase()]
     );
     return rows[0] || null;
@@ -35,7 +37,7 @@ class StudentRepository extends BaseRepository {
 
   async listByClassroom(classroomId) {
     const [rows] = await this.pool.query(
-      'SELECT id, name, username FROM students WHERE classroom_id = ? ORDER BY name',
+      'SELECT id, name, username FROM students WHERE classroom_id = $1 ORDER BY name',
       [classroomId]
     );
     return rows;

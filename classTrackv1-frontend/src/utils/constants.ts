@@ -25,6 +25,7 @@ export const ROUTES = {
     CLASSROOMS: "/teacher/classrooms",
     TASKS: "/teacher/tasks",
     EVALUATIONS: "/teacher/evaluations",
+    KNOWLEDGE_BASE: "/teacher/knowledge",
     GRADING_OVERVIEW: (classroomId: number | string) =>
       `/teacher/classrooms/${classroomId}/grading`,
     TASK_SUBMISSIONS: (taskId: number | string) =>

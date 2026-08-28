@@ -7,6 +7,7 @@ import AssignmentOutlinedIcon from "@mui/icons-material/AssignmentOutlined";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
 import InsertDriveFileOutlinedIcon from "@mui/icons-material/InsertDriveFileOutlined";
+import LibraryBooksOutlinedIcon from "@mui/icons-material/LibraryBooksOutlined";
 import { ROUTES } from "@utils/constants";
 import type { Role } from "@/types/common";
 
@@ -29,11 +30,12 @@ export const navConfigByRole: Record<Role, NavItem[]> = {
     { label: "Reports", path: ROUTES.ADMIN.DASHBOARD, icon: <InsertDriveFileOutlinedIcon sx={iconSx} />, disabled: true },
   ],
   teacher: [
-    { label: "Dashboard", path: ROUTES.TEACHER.DASHBOARD, icon: <DashboardOutlinedIcon sx={iconSx} /> },
-    { label: "My Classrooms", path: ROUTES.TEACHER.CLASSROOMS, icon: <MeetingRoomOutlinedIcon sx={iconSx} /> },
-    { label: "Assignments", path: ROUTES.TEACHER.TASKS, icon: <AssignmentOutlinedIcon sx={iconSx} /> },
-    { label: "Grading", path: ROUTES.TEACHER.CLASSROOMS, icon: <BarChartOutlinedIcon sx={iconSx} /> },
-    { label: "AI Evaluations", path: ROUTES.TEACHER.EVALUATIONS, icon: <AutoAwesomeOutlinedIcon sx={iconSx} /> },
+    { label: "Dashboard",       path: ROUTES.TEACHER.DASHBOARD,     icon: <DashboardOutlinedIcon sx={iconSx} /> },
+    { label: "My Classrooms",   path: ROUTES.TEACHER.CLASSROOMS,    icon: <MeetingRoomOutlinedIcon sx={iconSx} /> },
+    { label: "Assignments",     path: ROUTES.TEACHER.TASKS,         icon: <AssignmentOutlinedIcon sx={iconSx} /> },
+    { label: "Grading",         path: ROUTES.TEACHER.CLASSROOMS,    icon: <BarChartOutlinedIcon sx={iconSx} /> },
+    { label: "AI Evaluations",  path: ROUTES.TEACHER.EVALUATIONS,   icon: <AutoAwesomeOutlinedIcon sx={iconSx} /> },
+    { label: "Knowledge Base",  path: ROUTES.TEACHER.KNOWLEDGE_BASE, icon: <LibraryBooksOutlinedIcon sx={iconSx} /> },
   ],
   student: [
     { label: "Dashboard", path: ROUTES.STUDENT.DASHBOARD, icon: <DashboardOutlinedIcon sx={iconSx} /> },

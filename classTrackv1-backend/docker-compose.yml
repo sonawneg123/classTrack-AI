@@ -1,0 +1,64 @@
+version: '3.9'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ClassTrack AI — Docker Compose
+#
+# Services:
+#   postgres  — PostgreSQL 16 with pgvector extension
+#   flyway    — Flyway migration runner (runs once, exits)
+#
+# Usage:
+#   1. Copy .env.example → .env and set your passwords.
+#   2. docker compose up -d postgres
+#   3. docker compose run --rm flyway  (applies migrations)
+#   4. npm run seed  (optional: inserts demo data)
+#   5. npm run dev
+#
+# A fresh developer workflow:
+#   docker compose up -d postgres
+#   docker compose run --rm flyway
+#   npm install && npm run seed && npm run dev
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── PostgreSQL 16 + pgvector ─────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: classtrack_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${DB_NAME:-classtrack_ai}
+      POSTGRES_USER:     ${DB_USER:-classtrack}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-classtrack_password}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-classtrack} -d ${DB_NAME:-classtrack_ai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Flyway migration runner ───────────────────────────────────────────────
+  flyway:
+    image: flyway/flyway:10-alpine
+    container_name: classtrack_flyway
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      FLYWAY_URL:      jdbc:postgresql://${DB_HOST:-postgres}:${DB_PORT:-5432}/${DB_NAME:-classtrack_ai}
+      FLYWAY_USER:     ${DB_USER:-classtrack}
+      FLYWAY_PASSWORD: ${DB_PASSWORD:-classtrack_password}
+      FLYWAY_SCHEMAS:  public
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+    volumes:
+      - ./database/migrations/flyway:/flyway/sql:ro
+    command: migrate
+    profiles:
+      - migrate
+
+volumes:
+  postgres_data:

@@ -29,7 +29,7 @@ async function authenticate(req, res, next) {
     const table = TABLE_BY_ROLE[payload.role];
     if (!table) throw ApiError.unauthorized('Invalid token role.');
 
-    const [rows] = await pool.query(`SELECT * FROM \`${table}\` WHERE id = ?`, [payload.id]);
+    const [rows] = await pool.query(`SELECT * FROM ${table} WHERE id = $1`, [payload.id]);
     const account = rows[0];
 
     if (!account) throw ApiError.unauthorized('Your account no longer exists.');

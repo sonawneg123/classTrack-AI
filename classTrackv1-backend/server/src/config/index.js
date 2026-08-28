@@ -29,7 +29,7 @@ const config = {
 
   db: {
     host:     process.env.DB_HOST,
-    port:     Number(process.env.DB_PORT) || 3306,
+    port:     Number(process.env.DB_PORT) || 5432,
     user:     process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     name:     process.env.DB_NAME,
@@ -80,6 +80,37 @@ const config = {
     // Default models are Groq-hosted. Override via GROQ_TEXT_MODEL / GROQ_VISION_MODEL env vars.
     textModel:   process.env.GROQ_TEXT_MODEL   || 'llama3-70b-8192',
     visionModel: process.env.GROQ_VISION_MODEL || 'llava-v1.5-7b-4096-preview',
+    // LLM model used by the RAG pipeline (separate from grading model).
+    ragModel:    process.env.GROQ_RAG_MODEL    || 'llama3-70b-8192',
+  },
+
+  embedding: {
+    // Provider: 'local' (default, uses @xenova/transformers locally) or 'huggingface-api'.
+    provider:    process.env.EMBEDDING_PROVIDER || 'local',
+    // Model name — must match the provider.  For 'local', this is the
+    // Xenova/ONNX-compatible model identifier from HuggingFace.
+    model:       process.env.EMBEDDING_MODEL    || 'Xenova/all-MiniLM-L6-v2',
+    // Vector dimension produced by the chosen model.
+    // IMPORTANT: if you change the model you MUST also create a new Flyway
+    // migration that ALTERs knowledge_chunks.embedding to vector(<new_dim>).
+    dimension:   Number(process.env.EMBEDDING_DIMENSION) || 384,
+  },
+
+  rag: {
+    // Number of chunks to retrieve per search query.
+    topK:         Number(process.env.RAG_TOP_K)           || 20,
+    // Maximum characters allowed per knowledge document upload.
+    maxDocChars:  Number(process.env.RAG_MAX_DOC_CHARS)   || 1_000_000,
+    // Target tokens per chunk.
+    chunkTokens:  Number(process.env.RAG_CHUNK_TOKENS)    || 512,
+    // Overlap between consecutive chunks in tokens.
+    overlapTokens: Number(process.env.RAG_OVERLAP_TOKENS) || 64,
+    // Knowledge document upload dir (separate from submission uploads).
+    uploadDir:    process.env.RAG_UPLOAD_DIR              || 'uploads/knowledge',
+    // Maximum knowledge document size in MB.
+    maxSizeMb:    Number(process.env.RAG_MAX_SIZE_MB)     || 50,
+    // Maximum retry attempts before a document is permanently failed.
+    maxRetries:   Number(process.env.RAG_MAX_RETRIES)     || 3,
   },
 
   upload: {

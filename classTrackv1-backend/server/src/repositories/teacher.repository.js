@@ -1,5 +1,7 @@
 /**
  * server/src/repositories/teacher.repository.js
+ *
+ * PostgreSQL-compatible. Parameter placeholders are $1, $2, …
  */
 const BaseRepository = require('./base.repository');
 
@@ -26,7 +28,7 @@ class TeacherRepository extends BaseRepository {
        LEFT JOIN classrooms c ON c.teacher_id = t.id
        GROUP BY t.id
        ORDER BY t.created_at DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
     const total = await this.count();

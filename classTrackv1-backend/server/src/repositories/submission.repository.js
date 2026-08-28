@@ -1,5 +1,7 @@
 /**
  * server/src/repositories/submission.repository.js
+ *
+ * PostgreSQL-compatible. Parameter placeholders are $1, $2, …
  */
 const BaseRepository = require('./base.repository');
 
@@ -8,7 +10,7 @@ class SubmissionRepository extends BaseRepository {
 
   async findByTaskAndStudent(taskId, studentId) {
     const [rows] = await this.pool.query(
-      'SELECT * FROM submissions WHERE task_id = ? AND student_id = ? LIMIT 1',
+      'SELECT * FROM submissions WHERE task_id = $1 AND student_id = $2 LIMIT 1',
       [taskId, studentId]
     );
     return rows[0] || null;
@@ -16,7 +18,7 @@ class SubmissionRepository extends BaseRepository {
 
   async listByTask(taskId) {
     const [rows] = await this.pool.query(
-      'SELECT * FROM submissions WHERE task_id = ?',
+      'SELECT * FROM submissions WHERE task_id = $1',
       [taskId]
     );
     return rows;
@@ -26,7 +28,7 @@ class SubmissionRepository extends BaseRepository {
     const [rows] = await this.pool.query(
       `SELECT sub.* FROM submissions sub
        JOIN tasks t ON t.id = sub.task_id
-       WHERE t.classroom_id = ?`,
+       WHERE t.classroom_id = $1`,
       [classroomId]
     );
     return rows;
@@ -37,7 +39,7 @@ class SubmissionRepository extends BaseRepository {
       `SELECT sub.*, t.title AS task_title, t.max_score
        FROM submissions sub
        JOIN tasks t ON t.id = sub.task_id
-       WHERE sub.student_id = ?
+       WHERE sub.student_id = $1
        ORDER BY sub.submitted_at DESC`,
       [studentId]
     );
@@ -45,12 +47,12 @@ class SubmissionRepository extends BaseRepository {
   }
 
   async create(data) {
-    const [result] = await this.pool.query(
+    const [rows] = await this.pool.query(
       `INSERT INTO submissions (task_id, student_id, file_path, original_filename, file_type, typed_text)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
       [data.taskId, data.studentId, data.filePath, data.originalFilename, data.fileType, data.typedText || null]
     );
-    return result.insertId;
+    return rows[0].id;
   }
 
   async resetForResubmit(id, data) {
@@ -110,7 +112,7 @@ class SubmissionRepository extends BaseRepository {
          (submission_id, attempt_number, file_path, original_filename, file_type,
           typed_text, extracted_text, ai_score, ai_summary, ai_strengths,
           ai_improvements, teacher_score, teacher_feedback)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         submission.id,        submission.attempt_number, submission.file_path,
         submission.original_filename, submission.file_type,  submission.typed_text,
@@ -123,7 +125,7 @@ class SubmissionRepository extends BaseRepository {
 
   async getVersionHistory(submissionId) {
     const [rows] = await this.pool.query(
-      'SELECT * FROM submission_versions WHERE submission_id = ? ORDER BY attempt_number ASC',
+      'SELECT * FROM submission_versions WHERE submission_id = $1 ORDER BY attempt_number ASC',
       [submissionId]
     );
     return rows;
@@ -143,30 +145,15 @@ class SubmissionRepository extends BaseRepository {
        JOIN tasks t ON t.id = sub.task_id
        JOIN classrooms c ON c.id = t.classroom_id
        JOIN students s ON s.id = sub.student_id
-       WHERE sub.id = ? AND c.teacher_id = ?`,
+       WHERE sub.id = $1 AND c.teacher_id = $2`,
       [submissionId, teacherId]
     );
     return rows[0] || null;
   }
 
   /**
-   * Returns all pending evaluations for the teacher:
-   * every submission across their classrooms where the teacher has not yet
-   * assigned a score (teacher_score IS NULL), regardless of AI status.
-   *
-   *  'submitted'  — student submitted; AI queue not yet started
-   *  'analyzing'  — AI evaluation in progress
-   *  'analyzed'   — AI is done; teacher review still required  ← KEY FIX
-   *  'failed'     — AI failed; teacher must evaluate manually
-   *
-   * A submission is removed from this list only once the teacher explicitly
-   * assigns a score (overrideScore sets teacher_score to a non-NULL value).
-   *
-   * Ownership is enforced via the JOIN chain: classroom must belong to the
-   * requesting teacher and must not be soft-deleted.
-   *
-   * Returns submissions enriched with task title, max_score, classroom name,
-   * student name/username — everything needed for the pending evaluations page.
+   * Returns all pending evaluations for the teacher.
+   * Ownership enforced via JOIN chain.
    */
   async listPendingForTeacher(teacherId) {
     const [rows] = await this.pool.query(
@@ -196,7 +183,7 @@ class SubmissionRepository extends BaseRepository {
        JOIN tasks      t ON t.id  = sub.task_id
        JOIN classrooms c ON c.id  = t.classroom_id
        JOIN students   s ON s.id  = sub.student_id
-       WHERE c.teacher_id  = ?
+       WHERE c.teacher_id  = $1
          AND c.deleted_at  IS NULL
          AND t.deleted_at  IS NULL
          AND sub.teacher_score IS NULL

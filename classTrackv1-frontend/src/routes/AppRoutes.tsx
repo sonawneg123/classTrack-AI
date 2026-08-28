@@ -12,6 +12,7 @@ import TeacherGradingOverviewPage from "@pages/teacher/GradingOverviewPage";
 import PendingEvaluationsPage from "@pages/teacher/PendingEvaluationsPage";
 import TaskSubmissionsPage from "@pages/teacher/TaskSubmissionsPage";
 import SubmissionDetailPage from "@pages/teacher/SubmissionDetailPage";
+import KnowledgeBasePage from "@pages/teacher/KnowledgeBasePage";
 import StudentDashboardPage from "@pages/student/DashboardPage";
 import StudentAssignmentsPage from "@pages/student/AssignmentsPage";
 import StudentAssignmentDetailPage from "@pages/student/AssignmentDetailPage";
@@ -52,6 +53,7 @@ export default function AppRoutes() {
           <Route path="/teacher/classrooms/:classroomId/grading" element={<TeacherGradingOverviewPage />} />
           <Route path="/teacher/tasks/:taskId/submissions" element={<TaskSubmissionsPage />} />
           <Route path="/teacher/submissions/:submissionId" element={<SubmissionDetailPage />} />
+          <Route path={ROUTES.TEACHER.KNOWLEDGE_BASE} element={<KnowledgeBasePage />} />
         </Route>
 
         <Route element={<RoleRoute allowedRoles={["student"]} />}>

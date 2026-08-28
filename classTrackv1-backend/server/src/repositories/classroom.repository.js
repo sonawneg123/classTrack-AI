@@ -1,5 +1,10 @@
 /**
  * server/src/repositories/classroom.repository.js
+ *
+ * PostgreSQL-compatible. Parameter placeholders are $1, $2, …
+ * MySQL-specific removed: backticks, ? params, SET ?, GREATEST() with magic
+ * string '1970-01-01' replaced with GREATEST(COALESCE(..., '1970-01-01'::timestamp))
+ * which is valid PostgreSQL.
  */
 const BaseRepository = require('./base.repository');
 
@@ -22,7 +27,7 @@ class ClassroomRepository extends BaseRepository {
        FROM classrooms c
        LEFT JOIN students s ON s.classroom_id = c.id
        LEFT JOIN tasks t    ON t.classroom_id = c.id
-       WHERE c.teacher_id = ?
+       WHERE c.teacher_id = $1
        GROUP BY c.id
        ORDER BY c.created_at DESC`,
       [teacherId]
@@ -38,9 +43,9 @@ class ClassroomRepository extends BaseRepository {
        FROM classrooms c
        JOIN teachers t ON t.id = c.teacher_id
        LEFT JOIN students s ON s.classroom_id = c.id
-       GROUP BY c.id
+       GROUP BY c.id, t.id
        ORDER BY c.created_at DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
     const total = await this.count();
@@ -49,7 +54,7 @@ class ClassroomRepository extends BaseRepository {
 
   async belongsToTeacher(classroomId, teacherId) {
     const [rows] = await this.pool.query(
-      'SELECT * FROM classrooms WHERE id = ? AND teacher_id = ?',
+      'SELECT * FROM classrooms WHERE id = $1 AND teacher_id = $2',
       [classroomId, teacherId]
     );
     return rows[0] || null;
@@ -59,29 +64,26 @@ class ClassroomRepository extends BaseRepository {
   // Classroom management (teacher-scoped CRUD, listing, dashboard stats)
   // ---------------------------------------------------------------------
 
-  /** Same as belongsToTeacher, but excludes soft-deleted classrooms —
-   *  used by every mutating classroom-management action so a deleted
-   *  classroom can never be found/edited/archived/restored again. */
+  /** Same as belongsToTeacher, but excludes soft-deleted classrooms. */
   async findOwnedById(classroomId, teacherId) {
     const [rows] = await this.pool.query(
-      'SELECT * FROM classrooms WHERE id = ? AND teacher_id = ? AND deleted_at IS NULL',
+      'SELECT * FROM classrooms WHERE id = $1 AND teacher_id = $2 AND deleted_at IS NULL',
       [classroomId, teacherId]
     );
     return rows[0] || null;
   }
 
-  /** Case-insensitive duplicate check within one teacher's own (non-deleted)
-   *  classrooms — same name + section is considered a duplicate. */
+  /** Case-insensitive duplicate check within one teacher's own (non-deleted) classrooms. */
   async existsDuplicate({ teacherId, name, section, excludeId = null }) {
     const params = [teacherId, name.trim(), (section || '').trim()];
     let sql = `
       SELECT id FROM classrooms
-      WHERE teacher_id = ?
+      WHERE teacher_id = $1
         AND deleted_at IS NULL
-        AND LOWER(name) = LOWER(?)
-        AND LOWER(COALESCE(section, '')) = LOWER(?)`;
+        AND LOWER(name) = LOWER($2)
+        AND LOWER(COALESCE(section, '')) = LOWER($3)`;
     if (excludeId) {
-      sql += ' AND id != ?';
+      sql += ` AND id != $${params.length + 1}`;
       params.push(excludeId);
     }
     const [rows] = await this.pool.query(sql, params);
@@ -90,21 +92,20 @@ class ClassroomRepository extends BaseRepository {
 
   /**
    * Paginated, searchable, sortable, filterable listing for one teacher's
-   * classroom management screen. One query for the page of rows (with
-   * aggregated student/task counts + latest activity via LEFT JOINs and
-   * a correlated MAX() — no N+1), one query for the total count.
+   * classroom management screen.
    */
   async listByTeacherManaged({ teacherId, limit, offset, search, status, sortBy, sortDir }) {
-    const where = ['c.teacher_id = ?', 'c.deleted_at IS NULL'];
+    const where = ['c.teacher_id = $1', 'c.deleted_at IS NULL'];
     const params = [teacherId];
 
-    if (status === 'active') where.push('c.is_active = 1');
-    if (status === 'archived') where.push('c.is_active = 0');
+    if (status === 'active')   where.push('c.is_active = TRUE');
+    if (status === 'archived') where.push('c.is_active = FALSE');
 
     if (search) {
-      where.push('(c.name LIKE ? OR c.subject LIKE ? OR c.section LIKE ? OR c.class_code LIKE ?)');
       const like = `%${search}%`;
       params.push(like, like, like, like);
+      const n = params.length;
+      where.push(`(c.name ILIKE $${n-3} OR c.subject ILIKE $${n-2} OR c.section ILIKE $${n-1} OR c.class_code ILIKE $${n})`);
     }
 
     const sortColumns = {
@@ -118,13 +119,17 @@ class ClassroomRepository extends BaseRepository {
 
     const whereSql = where.join(' AND ');
 
+    params.push(limit, offset);
+    const limitIdx  = params.length - 1;
+    const offsetIdx = params.length;
+
     const [rows] = await this.pool.query(
       `SELECT c.id, c.name, c.subject, c.section, c.class_code, c.is_active, c.created_at,
               COUNT(DISTINCT s.id) AS student_count,
               COUNT(DISTINCT t.id) AS task_count,
               GREATEST(
-                COALESCE(MAX(sub.submitted_at), '1970-01-01'),
-                COALESCE(MAX(t.created_at), '1970-01-01')
+                COALESCE(MAX(sub.submitted_at), '1970-01-01'::timestamp),
+                COALESCE(MAX(t.created_at), '1970-01-01'::timestamp)
               ) AS latest_activity_at
        FROM classrooms c
        LEFT JOIN students s     ON s.classroom_id = c.id
@@ -133,60 +138,49 @@ class ClassroomRepository extends BaseRepository {
        WHERE ${whereSql}
        GROUP BY c.id
        ORDER BY ${orderColumn} ${orderDir}
-       LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params
     );
 
+    const countParams = params.slice(0, params.length - 2);
     const [[{ total }]] = await this.pool.query(
       `SELECT COUNT(DISTINCT c.id) AS total FROM classrooms c WHERE ${whereSql}`,
-      params
+      countParams
     );
 
     return { rows, total: Number(total) };
   }
 
   async archive(id) {
-    await this.pool.query('UPDATE classrooms SET is_active = 0 WHERE id = ?', [id]);
+    await this.pool.query('UPDATE classrooms SET is_active = FALSE WHERE id = $1', [id]);
   }
 
   async restore(id) {
-    await this.pool.query('UPDATE classrooms SET is_active = 1 WHERE id = ?', [id]);
+    await this.pool.query('UPDATE classrooms SET is_active = TRUE WHERE id = $1', [id]);
   }
 
   async softDelete(id) {
-    await this.pool.query('UPDATE classrooms SET deleted_at = NOW(), is_active = 0 WHERE id = ?', [id]);
+    await this.pool.query('UPDATE classrooms SET deleted_at = NOW(), is_active = FALSE WHERE id = $1', [id]);
   }
 
   async updateFields(id, data) {
-    await this.pool.query('UPDATE classrooms SET ? WHERE id = ?', [data, id]);
+    const keys   = Object.keys(data);
+    const values = Object.values(data);
+    const setClauses = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+    await this.pool.query(
+      `UPDATE classrooms SET ${setClauses} WHERE id = $${keys.length + 1}`,
+      [...values, id]
+    );
   }
 
   async regenerateCode(id, classCode) {
-    await this.pool.query('UPDATE classrooms SET class_code = ? WHERE id = ?', [classCode, id]);
+    await this.pool.query('UPDATE classrooms SET class_code = $1 WHERE id = $2', [classCode, id]);
   }
 
   // ---------------------------------------------------------------------------
   // Grading overview (classroom-level aggregated grading data)
   // ---------------------------------------------------------------------------
 
-  /**
-   * Returns a grading overview for one classroom:
-   *   - summary: classroom-level counts + avg score
-   *   - tasks:   per-task aggregated grading rows
-   *   - students: per-student aggregated grading rows
-   *
-   * Three SQL queries (summary, tasks, students) — no N+1.
-   * Does NOT check ownership — caller (service) must verify the classroom
-   * belongs to the requesting teacher before calling this.
-   *
-   * Score precedence: COALESCE(teacher_score, ai_score) — matches
-   * effectiveScore() in scoring.util.js and admin.repository.js.
-   *
-   * "Evaluated" definition: status = 'analyzed' OR teacher_score IS NOT NULL.
-   * "Pending"   definition: submitted but not yet evaluated.
-   * Submissions with status 'submitted' / 'analyzing' / 'failed' where
-   * teacher_score IS NULL are counted as pending.
-   */
   async getGradingOverview(classroomId) {
     // ── 1. Classroom-level summary ─────────────────────────────────────────
     const [[summary]] = await this.pool.query(
@@ -221,7 +215,7 @@ class ClassroomRepository extends BaseRepository {
             JOIN tasks t ON t.id = sub.task_id
            WHERE t.classroom_id = c.id
              AND t.deleted_at IS NULL
-             AND sub.status NOT IN ('analyzed')
+             AND sub.status != 'analyzed'
              AND sub.teacher_score IS NULL
          )                             AS pending_count,
          (SELECT AVG(COALESCE(sub.teacher_score, sub.ai_score))
@@ -232,7 +226,7 @@ class ClassroomRepository extends BaseRepository {
              AND (sub.status = 'analyzed' OR sub.teacher_score IS NOT NULL)
          )                             AS avg_score
        FROM classrooms c
-       WHERE c.id = ?`,
+       WHERE c.id = $1`,
       [classroomId]
     );
 
@@ -250,7 +244,7 @@ class ClassroomRepository extends BaseRepository {
          COUNT(sub.id)                                 AS submitted_count,
          SUM(CASE WHEN (sub.status = 'analyzed' OR sub.teacher_score IS NOT NULL)
                   THEN 1 ELSE 0 END)                  AS evaluated_count,
-         SUM(CASE WHEN sub.status NOT IN ('analyzed')
+         SUM(CASE WHEN sub.status != 'analyzed'
                        AND sub.teacher_score IS NULL
                   THEN 1 ELSE 0 END)                  AS pending_count,
          AVG(CASE WHEN (sub.status = 'analyzed' OR sub.teacher_score IS NOT NULL)
@@ -258,7 +252,7 @@ class ClassroomRepository extends BaseRepository {
                   ELSE NULL END)                       AS avg_score
        FROM tasks t
        LEFT JOIN submissions sub ON sub.task_id = t.id
-       WHERE t.classroom_id = ?
+       WHERE t.classroom_id = $1
          AND t.deleted_at IS NULL
        GROUP BY t.id
        ORDER BY t.task_date DESC, t.created_at DESC`,
@@ -277,7 +271,7 @@ class ClassroomRepository extends BaseRepository {
          COUNT(sub.id)                                 AS submitted_count,
          SUM(CASE WHEN (sub.status = 'analyzed' OR sub.teacher_score IS NOT NULL)
                   THEN 1 ELSE 0 END)                  AS evaluated_count,
-         SUM(CASE WHEN sub.status NOT IN ('analyzed')
+         SUM(CASE WHEN sub.status != 'analyzed'
                        AND sub.teacher_score IS NULL
                   THEN 1 ELSE 0 END)                  AS pending_count,
          AVG(CASE WHEN (sub.status = 'analyzed' OR sub.teacher_score IS NOT NULL)
@@ -290,7 +284,7 @@ class ClassroomRepository extends BaseRepository {
             WHERE classroom_id = s.classroom_id
               AND deleted_at IS NULL
          )
-       WHERE s.classroom_id = ?
+       WHERE s.classroom_id = $1
        GROUP BY s.id
        ORDER BY s.name ASC`,
       [classroomId]
@@ -300,28 +294,26 @@ class ClassroomRepository extends BaseRepository {
   }
 
   /**
-   * One aggregated query for the whole teacher dashboard — total
-   * classrooms, total students, active assignments, pending evaluations.
-   * Deliberately a single round trip (subqueries, not N+1 per classroom).
+   * One aggregated query for the whole teacher dashboard.
    */
   async getTeacherDashboardStats(teacherId) {
     const [[row]] = await this.pool.query(
       `SELECT
          (SELECT COUNT(*) FROM classrooms
-           WHERE teacher_id = ? AND deleted_at IS NULL AND is_active = 1) AS total_classrooms,
+           WHERE teacher_id = $1 AND deleted_at IS NULL AND is_active = TRUE) AS total_classrooms,
          (SELECT COUNT(DISTINCT s.id)
             FROM students s
             JOIN classrooms c ON c.id = s.classroom_id
-           WHERE c.teacher_id = ? AND c.deleted_at IS NULL) AS total_students,
+           WHERE c.teacher_id = $2 AND c.deleted_at IS NULL) AS total_students,
          (SELECT COUNT(*)
             FROM tasks t
             JOIN classrooms c ON c.id = t.classroom_id
-           WHERE c.teacher_id = ? AND c.deleted_at IS NULL AND t.is_active = 1) AS active_assignments,
+           WHERE c.teacher_id = $3 AND c.deleted_at IS NULL AND t.is_active = TRUE) AS active_assignments,
          (SELECT COUNT(*)
             FROM submissions sub
             JOIN tasks      t ON t.id  = sub.task_id
             JOIN classrooms c ON c.id  = t.classroom_id
-           WHERE c.teacher_id    = ?
+           WHERE c.teacher_id    = $4
              AND c.deleted_at   IS NULL
              AND t.deleted_at   IS NULL
              AND sub.teacher_score IS NULL) AS pending_evaluations`,
@@ -335,18 +327,16 @@ class ClassroomRepository extends BaseRepository {
     };
   }
 
-  /** Recent activity feed — latest tasks posted + submissions made across
-   *  all of a teacher's classrooms, merged and capped, one query each
-   *  (two queries total, not per-classroom). */
+  /** Recent activity feed — latest tasks posted + submissions made. */
   async getRecentActivity(teacherId, limit = 10) {
     const [taskRows] = await this.pool.query(
       `SELECT 'task_posted' AS type, t.id, t.title AS label, c.name AS classroom_name,
               t.created_at AS occurred_at
          FROM tasks t
          JOIN classrooms c ON c.id = t.classroom_id
-        WHERE c.teacher_id = ? AND c.deleted_at IS NULL
+        WHERE c.teacher_id = $1 AND c.deleted_at IS NULL
         ORDER BY t.created_at DESC
-        LIMIT ?`,
+        LIMIT $2`,
       [teacherId, limit]
     );
     const [submissionRows] = await this.pool.query(
@@ -355,9 +345,9 @@ class ClassroomRepository extends BaseRepository {
          FROM submissions sub
          JOIN tasks t      ON t.id = sub.task_id
          JOIN classrooms c ON c.id = t.classroom_id
-        WHERE c.teacher_id = ? AND c.deleted_at IS NULL
+        WHERE c.teacher_id = $1 AND c.deleted_at IS NULL
         ORDER BY sub.submitted_at DESC
-        LIMIT ?`,
+        LIMIT $2`,
       [teacherId, limit]
     );
     return [...taskRows, ...submissionRows]

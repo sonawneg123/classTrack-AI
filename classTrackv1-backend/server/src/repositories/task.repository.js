@@ -1,5 +1,9 @@
 /**
  * server/src/repositories/task.repository.js
+ *
+ * PostgreSQL-compatible. Parameter placeholders are $1, $2, …
+ * MySQL-specific: backticks removed, ? replaced, SET ? replaced,
+ * NOW() kept (valid in PG), LOWER() kept (valid in PG).
  */
 const BaseRepository = require('./base.repository');
 
@@ -13,7 +17,7 @@ class TaskRepository extends BaseRepository {
               (SELECT COUNT(*) FROM students WHERE classroom_id = t.classroom_id) AS student_count
        FROM tasks t
        LEFT JOIN submissions sub ON sub.task_id = t.id
-       WHERE t.classroom_id = ? AND t.deleted_at IS NULL
+       WHERE t.classroom_id = $1 AND t.deleted_at IS NULL
        GROUP BY t.id
        ORDER BY t.task_date DESC, t.created_at DESC`,
       [classroomId]
@@ -30,8 +34,8 @@ class TaskRepository extends BaseRepository {
               sub.id AS submission_id, sub.status AS submission_status,
               sub.ai_score, sub.teacher_score, sub.attempt_number
        FROM tasks t
-       LEFT JOIN submissions sub ON sub.task_id = t.id AND sub.student_id = ?
-       WHERE t.classroom_id = ? AND t.is_active = 1 AND t.deleted_at IS NULL AND t.archived_at IS NULL
+       LEFT JOIN submissions sub ON sub.task_id = t.id AND sub.student_id = $1
+       WHERE t.classroom_id = $2 AND t.is_active = TRUE AND t.deleted_at IS NULL AND t.archived_at IS NULL
        ORDER BY t.task_date DESC, t.created_at DESC`,
       [studentId, classroomId]
     );
@@ -42,7 +46,7 @@ class TaskRepository extends BaseRepository {
     const [rows] = await this.pool.query(
       `SELECT t.* FROM tasks t
        JOIN classrooms c ON c.id = t.classroom_id
-       WHERE t.id = ? AND c.teacher_id = ? AND t.deleted_at IS NULL`,
+       WHERE t.id = $1 AND c.teacher_id = $2 AND t.deleted_at IS NULL`,
       [taskId, teacherId]
     );
     return rows[0] || null;
@@ -62,9 +66,9 @@ class TaskRepository extends BaseRepository {
     const params = [classroomId, title.trim()];
     let sql = `
       SELECT id FROM tasks
-      WHERE classroom_id = ? AND deleted_at IS NULL AND LOWER(title) = LOWER(?)`;
+      WHERE classroom_id = $1 AND deleted_at IS NULL AND LOWER(title) = LOWER($2)`;
     if (excludeId) {
-      sql += ' AND id != ?';
+      sql += ` AND id != $${params.length + 1}`;
       params.push(excludeId);
     }
     const [rows] = await this.pool.query(sql, params);
@@ -73,29 +77,28 @@ class TaskRepository extends BaseRepository {
 
   /**
    * Paginated, searchable, sortable, filterable listing across ALL of a
-   * teacher's classrooms (not scoped to one classroom) — one query for
-   * the page of rows (with a correlated submission count, no N+1), one
-   * query for the total count.
+   * teacher's classrooms.
    */
   async listByTeacherManaged({ teacherId, limit, offset, search, status, classroomId, sortBy, sortDir }) {
-    const where = ['t.teacher_id = ?', 't.deleted_at IS NULL'];
+    const where = ['t.teacher_id = $1', 't.deleted_at IS NULL'];
     const params = [teacherId];
 
-    if (status === 'published')   where.push('t.is_active = 1');
-    if (status === 'unpublished') where.push('t.is_active = 0');
-    // Archived is a separate, independent state from is_active — hidden
-    // from every status view except when explicitly asked for.
+    if (status === 'published')   where.push('t.is_active = TRUE');
+    if (status === 'unpublished') where.push('t.is_active = FALSE');
     if (status === 'archived') {
       where.push('t.archived_at IS NOT NULL');
     } else {
       where.push('t.archived_at IS NULL');
     }
-    if (classroomId) { where.push('t.classroom_id = ?'); params.push(classroomId); }
+    if (classroomId) {
+      params.push(classroomId);
+      where.push(`t.classroom_id = $${params.length}`);
+    }
 
     if (search) {
-      where.push('(t.title LIKE ? OR t.description LIKE ?)');
       const like = `%${search}%`;
       params.push(like, like);
+      where.push(`(t.title ILIKE $${params.length - 1} OR t.description ILIKE $${params.length})`);
     }
 
     const sortColumns = {
@@ -108,6 +111,10 @@ class TaskRepository extends BaseRepository {
     const orderDir = sortDir === 'asc' ? 'ASC' : 'DESC';
     const whereSql = where.join(' AND ');
 
+    params.push(limit, offset);
+    const limitIdx  = params.length - 1;
+    const offsetIdx = params.length;
+
     const [rows] = await this.pool.query(
       `SELECT t.id, t.classroom_id, t.title, t.description, t.instructions, t.max_score,
               t.due_date, t.task_date, t.is_active, t.ai_evaluation_enabled,
@@ -119,42 +126,48 @@ class TaskRepository extends BaseRepository {
        JOIN classrooms c ON c.id = t.classroom_id
        LEFT JOIN submissions sub ON sub.task_id = t.id
        WHERE ${whereSql}
-       GROUP BY t.id
+       GROUP BY t.id, c.name
        ORDER BY ${orderColumn} ${orderDir}
-       LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params
     );
 
+    // Count query uses params without limit/offset
+    const countParams = params.slice(0, params.length - 2);
     const [[{ total }]] = await this.pool.query(
       `SELECT COUNT(DISTINCT t.id) AS total FROM tasks t WHERE ${whereSql}`,
-      params
+      countParams
     );
 
     return { rows, total: Number(total) };
   }
 
   async updateFields(id, data) {
-    await this.pool.query('UPDATE tasks SET ? WHERE id = ?', [data, id]);
+    const keys   = Object.keys(data);
+    const values = Object.values(data);
+    const setClauses = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+    await this.pool.query(
+      `UPDATE tasks SET ${setClauses} WHERE id = $${keys.length + 1}`,
+      [...values, id]
+    );
   }
 
-  /** Explicit set (not a flip-toggle) — used by the publish/unpublish
-   *  endpoints, which must be idempotent, unlike toggleActive above. */
+  /** Explicit set (not a flip-toggle) — idempotent publish/unpublish. */
   async setPublished(id, published) {
-    await this.pool.query('UPDATE tasks SET is_active = ? WHERE id = ?', [published ? 1 : 0, id]);
+    await this.pool.query('UPDATE tasks SET is_active = $1 WHERE id = $2', [published, id]);
   }
 
   async softDelete(id) {
-    await this.pool.query('UPDATE tasks SET deleted_at = NOW(), is_active = 0 WHERE id = ?', [id]);
+    await this.pool.query('UPDATE tasks SET deleted_at = NOW(), is_active = FALSE WHERE id = $1', [id]);
   }
 
-  /** Archive/restore — independent of is_active (publish) and deleted_at
-   *  (soft delete). See the CREATE TABLE comment in database.sql. */
+  /** Archive/restore — independent of is_active and deleted_at. */
   async archive(id) {
-    await this.pool.query('UPDATE tasks SET archived_at = NOW() WHERE id = ?', [id]);
+    await this.pool.query('UPDATE tasks SET archived_at = NOW() WHERE id = $1', [id]);
   }
 
   async restore(id) {
-    await this.pool.query('UPDATE tasks SET archived_at = NULL WHERE id = ?', [id]);
+    await this.pool.query('UPDATE tasks SET archived_at = NULL WHERE id = $1', [id]);
   }
 }
 

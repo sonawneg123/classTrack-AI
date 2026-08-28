@@ -11,16 +11,18 @@
 const { Router } = require('express');
 const router = Router();
 
-const authRoutesV1  = require('./auth.routes');
-const accountRoutes  = require('../account.routes');
-const adminRoutes    = require('../admin.routes');
-const teacherRoutes  = require('../teacher.routes');
-const studentRoutes  = require('../student.routes');
+const authRoutesV1     = require('./auth.routes');
+const accountRoutes    = require('../account.routes');
+const adminRoutes      = require('../admin.routes');
+const teacherRoutes    = require('../teacher.routes');
+const studentRoutes    = require('../student.routes');
+const knowledgeRoutes  = require('../knowledge.routes');
 
-router.use('/auth',    authRoutesV1);
-router.use('/account', accountRoutes);
-router.use('/admin',   adminRoutes);
-router.use('/teacher', teacherRoutes);
-router.use('/student', studentRoutes);
+router.use('/auth',      authRoutesV1);
+router.use('/account',   accountRoutes);
+router.use('/admin',     adminRoutes);
+router.use('/teacher',   teacherRoutes);
+router.use('/student',   studentRoutes);
+router.use('/knowledge', knowledgeRoutes);
 
 module.exports = router;

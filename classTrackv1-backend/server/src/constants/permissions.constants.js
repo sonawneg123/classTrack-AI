@@ -28,6 +28,9 @@ const PERMISSIONS = {
   REPORT_VIEW_ANY:       'report:view_any',
   REPORT_VIEW_OWN:       'report:view_own',
   AUDIT_VIEW:            'audit:view',
+  // Sprint 2 — Knowledge Base
+  KNOWLEDGE_MANAGE_OWN:  'knowledge:manage_own',
+  KNOWLEDGE_SEARCH:      'knowledge:search',
 };
 
 const ROLE_PERMISSIONS = {
@@ -47,6 +50,9 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.SUBMISSION_GRADE,
     PERMISSIONS.STUDENT_MANAGE,
     PERMISSIONS.REPORT_VIEW_OWN,
+    // Sprint 2 — Knowledge Base
+    PERMISSIONS.KNOWLEDGE_MANAGE_OWN,
+    PERMISSIONS.KNOWLEDGE_SEARCH,
   ],
   student: [
     PERMISSIONS.SUBMISSION_SUBMIT,
