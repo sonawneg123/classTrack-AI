@@ -13,9 +13,11 @@ import PendingEvaluationsPage from "@pages/teacher/PendingEvaluationsPage";
 import TaskSubmissionsPage from "@pages/teacher/TaskSubmissionsPage";
 import SubmissionDetailPage from "@pages/teacher/SubmissionDetailPage";
 import KnowledgeBasePage from "@pages/teacher/KnowledgeBasePage";
+import TeacherQuestionBankPage from "@pages/teacher/QuestionBankPage";
 import StudentDashboardPage from "@pages/student/DashboardPage";
 import StudentAssignmentsPage from "@pages/student/AssignmentsPage";
 import StudentAssignmentDetailPage from "@pages/student/AssignmentDetailPage";
+import StudentQuestionBankPage from "@pages/student/QuestionBankPage";
 import { ProtectedRoute } from "./ProtectedRoute";
 import { RoleRoute } from "./RoleRoute";
 import { ROUTES } from "@utils/constants";
@@ -54,12 +56,14 @@ export default function AppRoutes() {
           <Route path="/teacher/tasks/:taskId/submissions" element={<TaskSubmissionsPage />} />
           <Route path="/teacher/submissions/:submissionId" element={<SubmissionDetailPage />} />
           <Route path={ROUTES.TEACHER.KNOWLEDGE_BASE} element={<KnowledgeBasePage />} />
+          <Route path={ROUTES.TEACHER.QUESTION_BANK} element={<TeacherQuestionBankPage />} />
         </Route>
 
         <Route element={<RoleRoute allowedRoles={["student"]} />}>
           <Route path={ROUTES.STUDENT.DASHBOARD} element={<StudentDashboardPage />} />
           <Route path={ROUTES.STUDENT.ASSIGNMENTS} element={<StudentAssignmentsPage />} />
           <Route path="/student/assignments/:taskId" element={<StudentAssignmentDetailPage />} />
+          <Route path={ROUTES.STUDENT.QUESTION_BANK} element={<StudentQuestionBankPage />} />
         </Route>
       </Route>
 

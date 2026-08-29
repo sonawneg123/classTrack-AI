@@ -217,12 +217,12 @@ async function _processDocumentAsync(documentId) {
 }
 
 async function _fetchDocumentForProcessing(documentId, client) {
-  const [rows] = await client.query(
+  const result = await client.query(
     `SELECT id, teacher_id, file_path, file_type, status, retry_count
      FROM knowledge_documents WHERE id = $1`,
     [documentId]
   );
-  return rows[0] || null;
+  return result.rows[0] || null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

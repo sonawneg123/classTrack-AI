@@ -31,6 +31,13 @@ const PERMISSIONS = {
   // Sprint 2 — Knowledge Base
   KNOWLEDGE_MANAGE_OWN:  'knowledge:manage_own',
   KNOWLEDGE_SEARCH:      'knowledge:search',
+  // Sprint 3 — Question Bank
+  QUESTION_GENERATE:     'question:generate',
+  QUESTION_VIEW_OWN:     'question:view_own',
+  QUESTION_VIEW_APPROVED:'question:view_approved',
+  QUESTION_APPROVE:      'question:approve',
+  QUESTION_PUBLISH:      'question:publish',
+  QUESTION_ARCHIVE:      'question:archive',
 };
 
 const ROLE_PERMISSIONS = {
@@ -53,11 +60,21 @@ const ROLE_PERMISSIONS = {
     // Sprint 2 — Knowledge Base
     PERMISSIONS.KNOWLEDGE_MANAGE_OWN,
     PERMISSIONS.KNOWLEDGE_SEARCH,
+    // Sprint 3 — Question Bank
+    PERMISSIONS.QUESTION_GENERATE,
+    PERMISSIONS.QUESTION_VIEW_OWN,
+    PERMISSIONS.QUESTION_APPROVE,
+    PERMISSIONS.QUESTION_PUBLISH,
+    PERMISSIONS.QUESTION_ARCHIVE,
   ],
   student: [
     PERMISSIONS.SUBMISSION_SUBMIT,
     PERMISSIONS.SUBMISSION_VIEW_OWN,
     PERMISSIONS.REPORT_VIEW_OWN,
+    // Sprint 3 — Question Bank
+    PERMISSIONS.QUESTION_GENERATE,
+    PERMISSIONS.QUESTION_VIEW_OWN,      // view own generated questions (all statuses)
+    PERMISSIONS.QUESTION_VIEW_APPROVED, // view published questions from teacher
   ],
 };
 

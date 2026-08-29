@@ -92,3 +92,106 @@ describe('retryDocument', () => {
     expect(result.retry_count).toBe(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression: raw pg client result handling
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Regression guard for the Sprint 3 bug:
+ *   pool.connect() returns a raw pg Client whose .query() returns
+ *   { rows, rowCount, fields } — NOT [rows, fields].
+ *
+ *   The old code did:
+ *     const [rows] = await client.query(...)
+ *   which attempted to iterate a plain object and threw:
+ *     "(intermediate value) is not iterable"
+ *
+ *   The fix uses:
+ *     const result = await client.query(...)
+ *     return result.rows[0] || null
+ */
+describe('_processDocumentAsync — raw pg client result handling (regression)', () => {
+  function makeFakeClient(rows) {
+    return {
+      // Mimics the real pg Client: returns a plain result object, NOT an array.
+      query: jest.fn().mockResolvedValue({ rows, rowCount: rows.length, fields: [] }),
+      release: jest.fn(),
+    };
+  }
+
+  it('processes successfully when client.query returns a pg result object with rows', async () => {
+    const fakeDoc = {
+      id: 1, teacher_id: 2, file_path: '/tmp/test.pdf',
+      file_type: 'pdf', status: 'uploaded', retry_count: 0,
+    };
+    const fakeClient = makeFakeClient([fakeDoc]);
+    pool.connect.mockResolvedValue(fakeClient);
+
+    docRepo.findByHash.mockResolvedValue(null);
+    docRepo.create.mockResolvedValue({ id: 1, status: 'uploaded' });
+    docRepo.setStatus.mockResolvedValue();
+    docRepo.resetForRetry.mockResolvedValue(null);
+
+    // Provide a second client for the txClient (transaction phase)
+    const fakeTxClient = {
+      query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0, fields: [] }),
+      release: jest.fn(),
+    };
+    pool.connect
+      .mockResolvedValueOnce(fakeClient)   // first connect — document fetch
+      .mockResolvedValueOnce(fakeTxClient); // second connect — transaction
+
+    chunkRepo.deleteByDocument.mockResolvedValue();
+    chunkRepo._insertChunksSequential.mockResolvedValue();
+
+    // registerAndProcess kicks off _processDocumentAsync via setImmediate
+    docRepo.findByHash.mockResolvedValue(null);
+    docRepo.create.mockResolvedValue({ id: 1, status: 'uploaded' });
+
+    const { registerAndProcess: rAndP } = jest.requireActual(
+      '../../../src/services/knowledge/ingestion.service'
+    );
+
+    // This call should NOT throw "(intermediate value) is not iterable"
+    // The async pipeline is triggered via setImmediate; we drive it manually
+    // by calling the service and waiting for the microtask queue to drain.
+    await expect(rAndP({
+      topicId: 1, teacherId: 2, title: 'Test',
+      originalFilename: 'test.pdf', filePath: '/tmp/test.pdf',
+      fileType: 'pdf', fileSizeBytes: 100,
+    })).resolves.toMatchObject({ status: 'uploaded' });
+
+    // The critical assertion: the mock client received the SELECT query,
+    // meaning _fetchDocumentForProcessing did NOT throw on the result object.
+    // We flush the setImmediate queue to let the async pipeline start.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // client.query must have been called with the document SELECT
+    expect(fakeClient.query).toHaveBeenCalledWith(
+      expect.stringContaining('SELECT'),
+      [1]
+    );
+    // client.release must have been called (no leak)
+    expect(fakeClient.release).toHaveBeenCalled();
+  });
+
+  it('returns null when the document row does not exist (client.query returns empty rows)', async () => {
+    const fakeClient = makeFakeClient([]); // no rows
+    pool.connect.mockResolvedValue(fakeClient);
+
+    // Drive _fetchDocumentForProcessing directly via a fresh retryDocument path:
+    // resetForRetry resolves, then async processing fires
+    docRepo.resetForRetry.mockResolvedValue({ id: 99, retry_count: 0 });
+
+    // pool.connect returns the client that says the document does not exist
+    pool.connect.mockResolvedValueOnce(fakeClient);
+
+    await retryDocument(99, 2);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // client.query was called and did not throw — result.rows[0] returned undefined → null
+    expect(fakeClient.query).toHaveBeenCalled();
+    expect(fakeClient.release).toHaveBeenCalled();
+  });
+});

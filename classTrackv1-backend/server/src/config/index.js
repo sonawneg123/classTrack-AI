@@ -113,6 +113,21 @@ const config = {
     maxRetries:   Number(process.env.RAG_MAX_RETRIES)     || 3,
   },
 
+  questionGeneration: {
+    // Maximum questions per single generation request.
+    maxQuestionsPerRequest: Number(process.env.QG_MAX_QUESTIONS)    || 20,
+    // Maximum context characters sent to the LLM in one request.
+    maxContextChars:        Number(process.env.QG_MAX_CONTEXT_CHARS) || 12_000,
+    // Maximum tokens the LLM may return per generation request.
+    maxTokens:              Number(process.env.QG_MAX_TOKENS)        || 4096,
+    // Timeout in ms for a single generation request.
+    timeoutMs:              Number(process.env.QG_TIMEOUT_MS)        || 60_000,
+    // Prompt version string embedded in every generated question row.
+    promptVersion:          process.env.QG_PROMPT_VERSION            || 'v1',
+    // Number of retrieval chunks passed as context.
+    retrievalTopK:          Number(process.env.QG_RETRIEVAL_TOP_K)   || 20,
+  },
+
   upload: {
     maxSizeMb:  Number(process.env.MAX_UPLOAD_MB) || 15,
     uploadDir:  process.env.UPLOAD_DIR || 'uploads',

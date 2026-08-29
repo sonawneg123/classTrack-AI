@@ -17,6 +17,7 @@ const adminRoutes      = require('../admin.routes');
 const teacherRoutes    = require('../teacher.routes');
 const studentRoutes    = require('../student.routes');
 const knowledgeRoutes  = require('../knowledge.routes');
+const questionRoutes   = require('../question.routes');
 
 router.use('/auth',      authRoutesV1);
 router.use('/account',   accountRoutes);
@@ -24,5 +25,6 @@ router.use('/admin',     adminRoutes);
 router.use('/teacher',   teacherRoutes);
 router.use('/student',   studentRoutes);
 router.use('/knowledge', knowledgeRoutes);
+router.use('/questions', questionRoutes);
 
 module.exports = router;

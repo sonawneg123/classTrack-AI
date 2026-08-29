@@ -61,17 +61,17 @@ router.get('/curricula/:curriculumId',           MANAGE, validate(validator.curr
 router.delete('/curricula/:curriculumId',        MANAGE, validate(validator.curriculumIdParam), controller.deleteCurriculum);
 
 // ── Subjects ──────────────────────────────────────────────────────────────────
-router.get('/curricula/:curriculumId/subjects',  MANAGE, validate(validator.createSubject), controller.listSubjects);
+router.get('/curricula/:curriculumId/subjects',  MANAGE, validate(validator.curriculumIdParam), controller.listSubjects);
 router.post('/curricula/:curriculumId/subjects', MANAGE, validate(validator.createSubject), controller.createSubject);
 router.delete('/subjects/:subjectId',            MANAGE, validate(validator.subjectIdParam), controller.deleteSubject);
 
 // ── Chapters ──────────────────────────────────────────────────────────────────
-router.get('/subjects/:subjectId/chapters',      MANAGE, validate(validator.createChapter), controller.listChapters);
+router.get('/subjects/:subjectId/chapters',      MANAGE, validate(validator.subjectIdParam), controller.listChapters);
 router.post('/subjects/:subjectId/chapters',     MANAGE, validate(validator.createChapter), controller.createChapter);
 router.delete('/chapters/:chapterId',            MANAGE, validate(validator.chapterIdParam), controller.deleteChapter);
 
 // ── Topics ────────────────────────────────────────────────────────────────────
-router.get('/chapters/:chapterId/topics',        MANAGE, validate(validator.createTopic), controller.listTopics);
+router.get('/chapters/:chapterId/topics',        MANAGE, validate(validator.chapterIdParam), controller.listTopics);
 router.post('/chapters/:chapterId/topics',       MANAGE, validate(validator.createTopic), controller.createTopic);
 router.delete('/topics/:topicId',                MANAGE, validate(validator.topicIdParam), controller.deleteTopic);
 
