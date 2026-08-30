@@ -39,9 +39,39 @@ const pool = {
     return [result.rows, result.fields || []];
   },
 
-  /** Acquire a raw pg client for transactions. */
+  /**
+   * Acquire a pg client for transactions.
+   *
+   * The raw client returned by _pgPool.connect() has a .query() that returns
+   * a QueryResult object.  All repositories use the mysql2 destructuring
+   * pattern `const [rows] = await executor.query(...)`, which expects an
+   * array tuple [rows, fields].  We wrap the client so its .query() returns
+   * the same [rows, fields] format as pool.query above.
+   */
   async connect() {
-    return _pgPool.connect();
+    const client = await _pgPool.connect();
+    // Preserve the original query method so BEGIN/COMMIT/ROLLBACK calls
+    // (which are made directly on the client in service files) still work.
+    const originalQuery = client.query.bind(client);
+
+    // Wrap .query() to return [rows, fields] matching the pool.query() shim.
+    client.query = async (sql, params) => {
+      const result = await originalQuery(sql, params);
+      return [result.rows, result.fields || []];
+    };
+
+    // Wrap .release() to RESTORE the original .query() before returning the
+    // client to _pgPool.  Without this, _pgPool.query() reuses the returned
+    // client but calls our [rows, fields] wrapper instead of the raw
+    // QueryResult-returning query — causing pool.query() to hang forever.
+    const originalRelease = client.release.bind(client);
+    client.release = (err) => {
+      client.query = originalQuery;   // restore raw query before pool reuse
+      client.release = originalRelease; // restore original release too
+      return originalRelease(err);
+    };
+
+    return client;
   },
 
   /** End the pool (used in scripts like setup-db.js and seed.js). */

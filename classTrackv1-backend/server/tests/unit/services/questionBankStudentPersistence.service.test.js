@@ -30,6 +30,8 @@ jest.mock('../../../src/repositories/questionBank.repository', () => ({
   findPublishedById:        jest.fn(),
   listByTopic:              jest.fn(),
   listPendingApproval:      jest.fn(),
+  listReviewQueue:          jest.fn(),
+  listPublishedForTeacher:  jest.fn(),
   listByStudent:            jest.fn(),   // NEW
   listPublishedForStudent:  jest.fn(),
   updateStatus:             jest.fn(),
@@ -219,7 +221,7 @@ describe('teacher approval updates database status (persistence)', () => {
 
     expect(result.status).toBe('published');
     expect(questionRepo.updateStatus).toHaveBeenCalledWith(
-      APPROVED_Q.id, TEACHER_ID, 'published'
+      APPROVED_Q.id, TEACHER_ID, 'published', {}
     );
   });
 

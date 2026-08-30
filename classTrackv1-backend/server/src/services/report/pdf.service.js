@@ -291,4 +291,133 @@ function buildStudentReport(data) {
   return doc;
 }
 
-module.exports = { buildClassroomReport, buildStudentReport };
+/**
+ * Teacher-facing quiz result report.
+ *
+ * data shape (from quizAssignment.service.getQuizResults):
+ *   quiz     : { id, title, classroom, teacher, maxScore, dueDate }
+ *   summary  : { totalStudents, attempted, notAttempted,
+ *                averagePercentage, highestPercentage, lowestPercentage }
+ *   students : [{ rank, studentName, username, score, maxScore, percentage,
+ *                 attemptNumber, totalAttempts, status, submittedAt }]
+ *   notAttempted : [{ studentName, username }]
+ */
+function buildQuizResultReport(data) {
+  const doc = new PDFDocument({ margin: 40, bufferPages: true, size: 'A4' });
+  const { quiz, summary, students, notAttempted } = data;
+
+  const generatedDate = new Date().toLocaleDateString(undefined, {
+    year: 'numeric', month: 'long', day: 'numeric',
+  });
+
+  // ── Header ──────────────────────────────────────────────────────────────────
+  drawHeader(
+    doc,
+    'Quiz Result Report',
+    `${quiz.title}  ·  ${quiz.classroom}  ·  Teacher: ${quiz.teacher}`
+  );
+
+  // ── Quiz Metadata ────────────────────────────────────────────────────────────
+  sectionTitle(doc, 'Quiz Information');
+  doc.font('Helvetica').fontSize(10);
+  doc.text(`Quiz:      ${quiz.title}`);
+  doc.text(`Class:     ${quiz.classroom}`);
+  doc.text(`Teacher:   ${quiz.teacher}`);
+  doc.text(`Max Score: ${quiz.maxScore}`);
+  if (quiz.dueDate) {
+    doc.text(`Due Date:  ${new Date(quiz.dueDate).toLocaleDateString()}`);
+  }
+  doc.text(`Report Generated: ${generatedDate}`);
+
+  // ── Class Summary ────────────────────────────────────────────────────────────
+  doc.moveDown(0.5);
+  sectionTitle(doc, 'Class Summary');
+  doc.font('Helvetica').fontSize(10);
+  doc.text(`Total Students Assigned:  ${summary.totalStudents}`);
+  doc.text(`Students Attempted:       ${summary.attempted}`);
+  doc.text(`Students Not Attempted:   ${summary.notAttempted}`);
+  if (summary.averagePercentage !== null) {
+    doc.text(`Average Score:            ${summary.averagePercentage}%`);
+    doc.text(`Highest Score:            ${summary.highestPercentage}%`);
+    doc.text(`Lowest Score:             ${summary.lowestPercentage}%`);
+  } else {
+    doc.text('Average Score:            No submissions yet');
+  }
+
+  // ── Student Ranking Table ────────────────────────────────────────────────────
+  if (students.length > 0) {
+    doc.moveDown(0.5);
+    sectionTitle(doc, 'Student Ranking');
+
+    // Table header
+    const colX = { rank: 50, name: 100, score: 290, pct: 360, attempt: 430, submitted: 470 };
+    const headerY = doc.y;
+    doc.rect(40, headerY - 2, doc.page.width - 80, 18).fill('#f0e8e8');
+    doc
+      .fillColor(MAROON)
+      .font('Helvetica-Bold')
+      .fontSize(9);
+    doc.text('Rank',      colX.rank,    headerY, { width: 45 });
+    doc.text('Student',   colX.name,    headerY, { width: 185 });
+    doc.text('Score',     colX.score,   headerY, { width: 65, align: 'center' });
+    doc.text('%',         colX.pct,     headerY, { width: 65, align: 'center' });
+    doc.text('Attempt',   colX.attempt, headerY, { width: 40, align: 'center' });
+    doc.text('Submitted', colX.submitted, headerY, { width: 90 });
+    doc.moveDown(1.2);
+    doc.fillColor(INK);
+
+    students.forEach((s, idx) => {
+      if (doc.y > doc.page.height - 80) { doc.addPage(); doc.y = 60; }
+      const y = doc.y;
+      const isTied = idx > 0 && students[idx - 1].rank === s.rank;
+
+      // Alternate row shading
+      if (idx % 2 === 0) {
+        doc.rect(40, y - 1, doc.page.width - 80, 16).fill('#fafafa');
+      }
+
+      const rankLabel = `#${s.rank}`;
+      const scoreLabel = s.score !== null && s.maxScore
+        ? `${s.score} / ${s.maxScore}`
+        : '—';
+      const pctLabel = s.percentage !== null ? `${s.percentage}%` : '—';
+      const submittedLabel = s.submittedAt
+        ? new Date(s.submittedAt).toLocaleDateString()
+        : '—';
+      const color = s.rank === 1 ? MAROON : INK;
+
+      doc.fillColor(color).font(s.rank <= 3 ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
+      doc.text(rankLabel,        colX.rank,     y, { width: 45 });
+      doc.text(s.studentName,    colX.name,     y, { width: 185 });
+      doc.text(scoreLabel,       colX.score,    y, { width: 65, align: 'center' });
+      doc.text(pctLabel,         colX.pct,      y, { width: 65, align: 'center' });
+      doc.text(String(s.attemptNumber), colX.attempt, y, { width: 40, align: 'center' });
+      doc.fillColor(INK).font('Helvetica');
+      doc.text(submittedLabel,   colX.submitted, y, { width: 90 });
+      doc.moveDown(0.9);
+    });
+  }
+
+  // ── Not Attempted Students ───────────────────────────────────────────────────
+  if (notAttempted.length > 0) {
+    if (doc.y > doc.page.height - 120) doc.addPage();
+    doc.moveDown(0.5);
+    sectionTitle(doc, 'Students Who Did Not Attempt');
+    doc.font('Helvetica').fontSize(10);
+    notAttempted.forEach((s) => {
+      if (doc.y > doc.page.height - 60) doc.addPage();
+      doc.fillColor('#a08c89').text(`• ${s.studentName}  (@${s.username})`);
+    });
+    doc.fillColor(INK);
+  }
+
+  // ── Question Performance Summary ─────────────────────────────────────────────
+  // (Aggregated per-question accuracy — available if we have student detail data.
+  //  At the summary level, we note this is available per-student via the UI.)
+
+  drawFooter(doc);
+  doc.end();
+  return doc;
+}
+
+module.exports = { buildClassroomReport, buildStudentReport, buildQuizResultReport };

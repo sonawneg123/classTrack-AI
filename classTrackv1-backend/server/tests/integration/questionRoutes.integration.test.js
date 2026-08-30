@@ -76,7 +76,14 @@ jest.mock('../../src/repositories/passwordResetToken.repository', () => ({
 jest.mock('../../src/repositories/questionBank.repository', () => ({
   insert: jest.fn(), existsDuplicate: jest.fn(), findById: jest.fn(),
   findByTopic: jest.fn(), findPendingApproval: jest.fn(),
+  listPendingApproval: jest.fn(), listReviewQueue: jest.fn(),
+  listPublishedForTeacher: jest.fn(), listPublishedForStudent: jest.fn(),
+  listByStudent: jest.fn(), listByTopic: jest.fn(),
+  findByIdForTeacher: jest.fn(), findPublishedById: jest.fn(),
   updateStatus: jest.fn(), textHash: jest.fn(),
+  countPublishedByTopic: jest.fn(),
+  selectPublishedRandom: jest.fn(), selectPublishedByIds: jest.fn(),
+  listPracticeByStudent: jest.fn(), findPracticeByIdForStudent: jest.fn(),
 }));
 
 jest.mock('../../src/repositories/topic.repository', () => ({
@@ -93,7 +100,8 @@ jest.mock('../../src/repositories/curriculum.repository', () => ({
 }));
 
 jest.mock('../../src/services/knowledge/retrieval.service', () => ({
-  search: jest.fn(),
+  search:       jest.fn(),
+  buildContext: jest.fn().mockReturnValue('Mocked context text'),
 }));
 
 jest.mock('../../src/services/ai/providers', () => ({
@@ -231,65 +239,25 @@ describe('Question Bank — route registration (Sprint 3 regression)', () => {
     });
   });
 
-  // ── Authenticated: route reaches service layer ─────────────────────────────
-  describe('POST /api/v1/questions/generate — authenticated student', () => {
-    it('reaches the generation service — non-404 response with valid JWT + valid body', async () => {
-      // Arrange: authenticated student + happy-path service mocks
-      const chapterRepo    = require('../../src/repositories/chapter.repository');
-      const subjectRepo    = require('../../src/repositories/subject.repository');
-      const curriculumRepo = require('../../src/repositories/curriculum.repository');
-      const questionRepo   = require('../../src/repositories/questionBank.repository');
-
-      topicRepo.findOwnedById.mockResolvedValue(MOCK_TOPIC);
-      chapterRepo.findOwnedById.mockResolvedValue(MOCK_CHAPTER);
-      subjectRepo.findOwnedById.mockResolvedValue(MOCK_SUBJECT);
-      curriculumRepo.findOwnedById.mockResolvedValue(MOCK_CURRICULUM);
-      search.mockResolvedValue({ results: MOCK_CHUNKS });
-      questionRepo.existsDuplicate.mockResolvedValue(false);
-      questionRepo.insert.mockResolvedValue({
-        id: 99, status: 'pending_approval', created_at: new Date().toISOString(),
-      });
-      getLLMProvider.mockReturnValue({
-        generateStructuredOutput: jest.fn().mockResolvedValue(MOCK_LLM_RESPONSE),
-      });
-
-      // authenticate calls pool.query directly; _resolveTeacherForStudent also uses pool.query
+  // ── Role isolation — Sprint 6: generate is now TEACHER-ONLY ──────────────
+  describe('POST /api/v1/questions/generate — role isolation (Sprint 6)', () => {
+    it('returns 403 when an authenticated student calls POST /questions/generate', async () => {
+      // Sprint 6: students use POST /practice/generate instead.
+      // This endpoint is teacher-only; students must be rejected with 403.
       const { pool } = require('../../src/database/connection');
-      pool.query
-        .mockResolvedValueOnce([[STUDENT_ACCOUNT]])   // authenticate: SELECT * FROM students WHERE id = $1
-        .mockResolvedValueOnce([[{ teacher_id: 2 }]]) // _resolveTeacherForStudent
-        .mockResolvedValue([[]]);
+      pool.query.mockResolvedValueOnce([[STUDENT_ACCOUNT]]).mockResolvedValue([[]]);
 
       const res = await request(app)
         .post('/api/v1/questions/generate')
         .set('Authorization', `Bearer ${STUDENT_TOKEN}`)
         .send({ topicId: 10, questionType: 'mcq', difficulty: 'medium', count: 1 });
 
-      // The important assertion: route is reachable (not 404).
-      // Accept any non-404 response — even 400/403/500 proves the route exists.
-      expect(res.status).not.toBe(404);
-    });
-
-    it('returns non-404 when pool returns no classroom for student', async () => {
-      // When a student has no classroom, _resolveTeacherForStudent throws 403.
-      // This proves the route IS registered (route handler ran) — if 404 were
-      // returned it would mean the route is not mounted.
-      const { pool } = require('../../src/database/connection');
-      pool.query
-        .mockResolvedValueOnce([[STUDENT_ACCOUNT]])   // authenticate
-        .mockResolvedValueOnce([[]])                  // _resolveTeacherForStudent — no classroom
-        .mockResolvedValue([[]]);
-
-      const res = await request(app)
-        .post('/api/v1/questions/generate')
-        .set('Authorization', `Bearer ${STUDENT_TOKEN}`)
-        .send({ topicId: 10, questionType: 'mcq', difficulty: 'medium', count: 1 });
-
-      // Must NOT be 404; business logic produces 403 (no classroom)
+      expect(res.status).toBe(403);
       expect(res.status).not.toBe(404);
     });
   });
 
+  // ── Authenticated teacher: route reaches service layer ────────────────────
   describe('POST /api/v1/questions/generate — authenticated teacher', () => {
     it('reaches the generation service — non-404 response with valid JWT', async () => {
       const chapterRepo    = require('../../src/repositories/chapter.repository');
@@ -301,7 +269,12 @@ describe('Question Bank — route registration (Sprint 3 regression)', () => {
       chapterRepo.findOwnedById.mockResolvedValue(MOCK_CHAPTER);
       subjectRepo.findOwnedById.mockResolvedValue(MOCK_SUBJECT);
       curriculumRepo.findOwnedById.mockResolvedValue(MOCK_CURRICULUM);
-      search.mockResolvedValue({ results: MOCK_CHUNKS });
+      search.mockResolvedValue({
+        results: MOCK_CHUNKS,
+        candidates: MOCK_CHUNKS.length,
+        bestSimilarity: 0.92,
+        belowThreshold: false,
+      });
       questionRepo.existsDuplicate.mockResolvedValue(false);
       questionRepo.insert.mockResolvedValue({
         id: 42, status: 'pending_approval', created_at: new Date().toISOString(),
@@ -320,20 +293,58 @@ describe('Question Bank — route registration (Sprint 3 regression)', () => {
 
       expect(res.status).not.toBe(404);
     });
+
+    it('returns 201 with stored questions on a full happy path', async () => {
+      const chapterRepo    = require('../../src/repositories/chapter.repository');
+      const subjectRepo    = require('../../src/repositories/subject.repository');
+      const curriculumRepo = require('../../src/repositories/curriculum.repository');
+      const questionRepo   = require('../../src/repositories/questionBank.repository');
+
+      topicRepo.findOwnedById.mockResolvedValue(MOCK_TOPIC);
+      chapterRepo.findOwnedById.mockResolvedValue(MOCK_CHAPTER);
+      subjectRepo.findOwnedById.mockResolvedValue(MOCK_SUBJECT);
+      curriculumRepo.findOwnedById.mockResolvedValue(MOCK_CURRICULUM);
+      search.mockResolvedValue({
+        results: MOCK_CHUNKS,
+        candidates: MOCK_CHUNKS.length,
+        bestSimilarity: 0.92,
+        belowThreshold: false,
+      });
+      questionRepo.existsDuplicate.mockResolvedValue(false);
+      questionRepo.insert.mockResolvedValue({
+        id: 42, status: 'pending_approval', created_at: new Date().toISOString(),
+      });
+      getLLMProvider.mockReturnValue({
+        generateStructuredOutput: jest.fn().mockResolvedValue(MOCK_LLM_RESPONSE),
+      });
+
+      const { pool } = require('../../src/database/connection');
+      pool.query.mockResolvedValue([[TEACHER_ACCOUNT]]);
+
+      const res = await request(app)
+        .post('/api/v1/questions/generate')
+        .set('Authorization', `Bearer ${TEACHER_TOKEN}`)
+        .send({ topicId: 10, questionType: 'mcq', difficulty: 'medium', count: 1 });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.stored).toBe(1);
+    });
   });
 
-  // ── Validator is reached (not bypassed) ───────────────────────────────────
+  // ── Validator is reached (not bypassed) — uses teacher token ─────────────
   describe('POST /api/v1/questions/generate — validation layer', () => {
     it('returns 400 (not 404) when body is missing required fields', async () => {
       const { pool } = require('../../src/database/connection');
-      // Provide the student account so authenticate passes; then validation fires
+      // Provide the teacher account so authenticate + authorizeRoles passes;
+      // then the Joi validation fires and returns 400.
       pool.query
-        .mockResolvedValueOnce([[STUDENT_ACCOUNT]])  // authenticate
+        .mockResolvedValueOnce([[TEACHER_ACCOUNT]])  // authenticate
         .mockResolvedValue([[]]);
 
       const res = await request(app)
         .post('/api/v1/questions/generate')
-        .set('Authorization', `Bearer ${STUDENT_TOKEN}`)
+        .set('Authorization', `Bearer ${TEACHER_TOKEN}`)
         .send({});  // missing topicId, questionType
 
       // 400 proves: route is registered AND authenticate + validate middleware ran

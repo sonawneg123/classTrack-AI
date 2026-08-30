@@ -17,7 +17,10 @@ jest.mock('../../../src/repositories/questionBank.repository', () => ({
   insert: jest.fn(),
   existsDuplicate: jest.fn(),
 }));
-jest.mock('../../../src/services/knowledge/retrieval.service', () => ({ search: jest.fn() }));
+jest.mock('../../../src/services/knowledge/retrieval.service', () => ({
+  search:       jest.fn(),
+  buildContext: jest.fn().mockReturnValue('Mocked context text'),
+}));
 jest.mock('../../../src/services/ai/providers', () => ({ getLLMProvider: jest.fn() }));
 
 const { generateQuestions } = require('../../../src/services/questions/questionGeneration.service');
@@ -72,7 +75,13 @@ beforeEach(() => {
   chapterRepo.findOwnedById.mockResolvedValue(MOCK_CHAPTER);
   subjectRepo.findOwnedById.mockResolvedValue(MOCK_SUBJECT);
   curriculumRepo.findOwnedById.mockResolvedValue(MOCK_CURRICULUM);
-  search.mockResolvedValue({ results: MOCK_CHUNKS });
+  // Updated: search now returns { results, candidates, bestSimilarity, belowThreshold }
+  search.mockResolvedValue({
+    results: MOCK_CHUNKS,
+    candidates: MOCK_CHUNKS.length,
+    bestSimilarity: 0.92,
+    belowThreshold: false,
+  });
   questionRepo.existsDuplicate.mockResolvedValue(false);
   questionRepo.insert.mockResolvedValue({ id: 99, status: 'pending_approval', created_at: new Date().toISOString() });
   getLLMProvider.mockReturnValue({
@@ -99,23 +108,49 @@ describe('generateQuestions — topic ownership', () => {
   });
 });
 
-// ── Empty retrieval ───────────────────────────────────────────────────────────
-describe('generateQuestions — empty retrieval', () => {
-  it('throws 400 and does NOT call Groq when no chunks retrieved', async () => {
-    search.mockResolvedValue({ results: [] });
-    await expect(generateQuestions({
+// ── Empty retrieval / INSUFFICIENT_CONTEXT ────────────────────────────────────
+describe('generateQuestions — insufficient context', () => {
+  it('returns INSUFFICIENT_CONTEXT and does NOT call Groq when no chunks pass threshold', async () => {
+    search.mockResolvedValue({
+      results: [],
+      candidates: 0,
+      bestSimilarity: null,
+      belowThreshold: true,
+    });
+    const result = await generateQuestions({
       topicId: 10, questionType: 'mcq', difficulty: 'easy', count: 1,
       requesterId: 1, requesterRole: 'teacher', ownerTeacherId: 1,
-    })).rejects.toMatchObject({ statusCode: 400 });
+    });
+    expect(result.insufficientContext).toBe(true);
+    expect(result.code).toBe('INSUFFICIENT_CONTEXT');
+    expect(result.stored).toBe(0);
     expect(getLLMProvider).not.toHaveBeenCalled();
   });
 
-  it('error message mentions "No relevant syllabus content"', async () => {
-    search.mockResolvedValue({ results: [] });
-    await expect(generateQuestions({
+  it('returns INSUFFICIENT_CONTEXT when belowThreshold flag is true even if rows exist', async () => {
+    search.mockResolvedValue({
+      results: [],          // filtered out by similarity threshold
+      candidates: 5,
+      bestSimilarity: 0.15, // below default 0.30 threshold
+      belowThreshold: true,
+    });
+    const result = await generateQuestions({
       topicId: 10, questionType: 'mcq', difficulty: 'easy', count: 1,
       requesterId: 1, requesterRole: 'teacher', ownerTeacherId: 1,
-    })).rejects.toMatchObject({ message: expect.stringContaining('No relevant syllabus content') });
+    });
+    expect(result.insufficientContext).toBe(true);
+    expect(getLLMProvider).not.toHaveBeenCalled();
+  });
+
+  it('message mentions learning material', async () => {
+    search.mockResolvedValue({
+      results: [], candidates: 0, bestSimilarity: null, belowThreshold: true,
+    });
+    const result = await generateQuestions({
+      topicId: 10, questionType: 'mcq', difficulty: 'easy', count: 1,
+      requesterId: 1, requesterRole: 'teacher', ownerTeacherId: 1,
+    });
+    expect(result.message).toMatch(/learning material/i);
   });
 });
 

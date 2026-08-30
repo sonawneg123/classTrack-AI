@@ -114,3 +114,98 @@ describe('KnowledgeDocumentRepository.softDeleteOwned', () => {
     expect(await docRepo.softDeleteOwned(5, 99)).toBe(false);
   });
 });
+
+describe('KnowledgeDocumentRepository.hardDeleteOwned', () => {
+  it('issues a real DELETE and returns file_path', async () => {
+    pool.query.mockResolvedValue([[{ file_path: '/uploads/knowledge/803020012.pdf' }]]);
+    const result = await docRepo.hardDeleteOwned(7, 3);
+    expect(result).toBe('/uploads/knowledge/803020012.pdf');
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/DELETE FROM knowledge_documents/);
+    expect(sql).toMatch(/teacher_id = \$2/);
+    expect(params).toEqual([7, 3]);
+  });
+
+  it('returns null when document not found', async () => {
+    pool.query.mockResolvedValue([[]]);
+    expect(await docRepo.hardDeleteOwned(999, 3)).toBeNull();
+  });
+
+  it('uses provided pg client when given', async () => {
+    const mockClient = { query: jest.fn().mockResolvedValue([[{ file_path: '/uploads/x.pdf' }]]) };
+    const result = await docRepo.hardDeleteOwned(7, 3, mockClient);
+    expect(result).toBe('/uploads/x.pdf');
+    expect(mockClient.query).toHaveBeenCalled();
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('KnowledgeDocumentRepository.listFilePathsByCurriculum', () => {
+  it('queries through the full hierarchy and returns file_path array', async () => {
+    pool.query.mockResolvedValue([[
+      { file_path: '/uploads/a.pdf' },
+      { file_path: '/uploads/b.pdf' },
+    ]]);
+    const result = await docRepo.listFilePathsByCurriculum(1, 5);
+    expect(result).toEqual(['/uploads/a.pdf', '/uploads/b.pdf']);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/curriculum_id = \$1/);
+    expect(sql).toMatch(/kd\.teacher_id\s*=\s*\$2/);
+    expect(params).toEqual([1, 5]);
+  });
+
+  it('returns empty array when no documents found', async () => {
+    pool.query.mockResolvedValue([[]]);
+    const result = await docRepo.listFilePathsByCurriculum(99, 5);
+    expect(result).toEqual([]);
+  });
+
+  it('uses provided pg client when given', async () => {
+    const mockClient = { query: jest.fn().mockResolvedValue([[{ file_path: '/uploads/c.pdf' }]]) };
+    const result = await docRepo.listFilePathsByCurriculum(1, 5, mockClient);
+    expect(result).toEqual(['/uploads/c.pdf']);
+    expect(mockClient.query).toHaveBeenCalled();
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('KnowledgeDocumentRepository.listFilePathsBySubject', () => {
+  it('queries through chapters and returns file_paths', async () => {
+    pool.query.mockResolvedValue([[{ file_path: '/uploads/s1.pdf' }]]);
+    const result = await docRepo.listFilePathsBySubject(2, 5);
+    expect(result).toEqual(['/uploads/s1.pdf']);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/ch\.subject_id = \$1/);
+    expect(sql).toMatch(/kd\.teacher_id = \$2/);
+    expect(params).toEqual([2, 5]);
+  });
+});
+
+describe('KnowledgeDocumentRepository.listFilePathsByChapter', () => {
+  it('queries through topics and returns file_paths', async () => {
+    pool.query.mockResolvedValue([[{ file_path: '/uploads/ch1.pdf' }, { file_path: '/uploads/ch2.pdf' }]]);
+    const result = await docRepo.listFilePathsByChapter(3, 5);
+    expect(result).toEqual(['/uploads/ch1.pdf', '/uploads/ch2.pdf']);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/t\.chapter_id\s*=\s*\$1/);
+    expect(sql).toMatch(/kd\.teacher_id = \$2/);
+    expect(params).toEqual([3, 5]);
+  });
+});
+
+describe('KnowledgeDocumentRepository.listFilePathsByTopic', () => {
+  it('queries directly on topic_id', async () => {
+    pool.query.mockResolvedValue([[{ file_path: '/uploads/t1.pdf' }]]);
+    const result = await docRepo.listFilePathsByTopic(4, 5);
+    expect(result).toEqual(['/uploads/t1.pdf']);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/kd\.topic_id\s*=\s*\$1/);
+    expect(sql).toMatch(/kd\.teacher_id = \$2/);
+    expect(params).toEqual([4, 5]);
+  });
+
+  it('returns empty array when topic has no documents', async () => {
+    pool.query.mockResolvedValue([[]]);
+    expect(await docRepo.listFilePathsByTopic(99, 5)).toEqual([]);
+  });
+});

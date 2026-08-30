@@ -169,7 +169,7 @@ async function getMySubmissions(studentId) {
 
 async function getMySubmissionHistory(submissionId, studentId) {
   const sub   = await require('../database/connection').pool
-    .query('SELECT id FROM submissions WHERE id = ? AND student_id = ?', [submissionId, studentId])
+    .query('SELECT id FROM submissions WHERE id = $1 AND student_id = $2', [submissionId, studentId])
     .then(([rows]) => rows[0]);
   if (!sub) throw ApiError.notFound('Submission not found.');
   return submissionRepo.getVersionHistory(submissionId);

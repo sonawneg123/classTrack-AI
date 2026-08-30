@@ -38,13 +38,18 @@ jest.mock('mammoth', () => ({
 }));
 
 const fs = require('fs');
-jest.spyOn(fs, 'readFileSync').mockReturnValue(Buffer.from('fake file content'));
+// Sync fs methods
+jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+jest.spyOn(fs, 'statSync').mockReturnValue({ size: 1024 });
 jest.spyOn(fs, 'unlink').mockImplementation((path, cb) => cb && cb());
+// Async fs.promises methods (used by _hashFile and _extractText)
+const fsPromises = require('fs').promises;
+jest.spyOn(fsPromises, 'readFile').mockResolvedValue(Buffer.from('fake file content'));
 
 const { pool } = require('../../../src/database/connection');
 const docRepo = require('../../../src/repositories/knowledgeDocument.repository');
 const chunkRepo = require('../../../src/repositories/knowledgeChunk.repository');
-const { registerAndProcess, retryDocument } = require('../../../src/services/knowledge/ingestion.service');
+const { registerAndProcess, retryDocument, recoverStuckDocuments } = require('../../../src/services/knowledge/ingestion.service');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -94,28 +99,76 @@ describe('retryDocument', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Regression: raw pg client result handling
+// recoverStuckDocuments
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('recoverStuckDocuments', () => {
+  it('does nothing when there are no stuck documents', async () => {
+    pool.query.mockResolvedValue([[], []]);
+    await expect(recoverStuckDocuments()).resolves.toBeUndefined();
+    // The recovery UPDATE is the only query call
+    const callArgs = pool.query.mock.calls[0][0];
+    expect(callArgs).toContain("status = 'processing'");
+    expect(callArgs).toContain("SET status = 'uploaded'");
+  });
+
+  it('resets stuck documents and re-queues them', async () => {
+    const stuckDocs = [
+      { id: 10, topic_id: 1, teacher_id: 2 },
+      { id: 11, topic_id: 1, teacher_id: 2 },
+    ];
+    pool.query.mockResolvedValue([stuckDocs, []]);
+
+    // The re-queued _processDocumentAsync calls pool.connect — let them resolve
+    // quickly by returning an empty-doc client
+    const fakeClient = {
+      query: jest.fn().mockResolvedValue([[], []]),
+      release: jest.fn(),
+    };
+    pool.connect.mockResolvedValue(fakeClient);
+
+    await recoverStuckDocuments();
+
+    const callArgs = pool.query.mock.calls[0][0];
+    expect(callArgs).toContain("SET status = 'uploaded'");
+    expect(callArgs).toContain("status = 'processing'");
+
+    // Let the setImmediate-queued processing drain
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Each recovered doc triggered a pool.connect for _fetchDocumentForProcessing.
+    // Calls may be >= stuckDocs.length because other tests in the same suite also
+    // queue setImmediate-driven pool.connect calls before clearing mocks.
+    expect(pool.connect.mock.calls.length).toBeGreaterThanOrEqual(stuckDocs.length);
+  });
+
+  it('survives a DB error without throwing', async () => {
+    pool.query.mockRejectedValue(new Error('DB connection error'));
+    await expect(recoverStuckDocuments()).resolves.toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression: connection.js shim client result handling
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Regression guard for the Sprint 3 bug:
- *   pool.connect() returns a raw pg Client whose .query() returns
- *   { rows, rowCount, fields } — NOT [rows, fields].
+ * Regression guard for _fetchDocumentForProcessing using the connection.js shim:
+ *   pool.connect() returns a WRAPPED client whose .query() returns [rows, fields]
+ *   (the same format as pool.query()).
  *
- *   The old code did:
+ *   _fetchDocumentForProcessing must use:
  *     const [rows] = await client.query(...)
- *   which attempted to iterate a plain object and threw:
- *     "(intermediate value) is not iterable"
+ *   NOT:
+ *     const result = await client.query(...); return result.rows[0]
  *
- *   The fix uses:
- *     const result = await client.query(...)
- *     return result.rows[0] || null
+ *   The fakeClient below returns [rows, fields] to match the shim contract.
  */
-describe('_processDocumentAsync — raw pg client result handling (regression)', () => {
+describe('_processDocumentAsync — connection.js shim client result handling (regression)', () => {
   function makeFakeClient(rows) {
     return {
-      // Mimics the real pg Client: returns a plain result object, NOT an array.
-      query: jest.fn().mockResolvedValue({ rows, rowCount: rows.length, fields: [] }),
+      // Mimics the connection.js shim: returns [rows, fields] tuple, NOT a plain pg result.
+      query: jest.fn().mockResolvedValue([rows, []]),
       release: jest.fn(),
     };
   }
@@ -133,9 +186,10 @@ describe('_processDocumentAsync — raw pg client result handling (regression)',
     docRepo.setStatus.mockResolvedValue();
     docRepo.resetForRetry.mockResolvedValue(null);
 
-    // Provide a second client for the txClient (transaction phase)
+    // Provide a second client for the txClient (transaction phase);
+    // uses [rows, fields] format consistent with the connection.js shim.
     const fakeTxClient = {
-      query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0, fields: [] }),
+      query: jest.fn().mockResolvedValue([[], []]),
       release: jest.fn(),
     };
     pool.connect
@@ -190,7 +244,7 @@ describe('_processDocumentAsync — raw pg client result handling (regression)',
     await retryDocument(99, 2);
     await new Promise((resolve) => setImmediate(resolve));
 
-    // client.query was called and did not throw — result.rows[0] returned undefined → null
+    // client.query was called and did not throw — destructuring [rows] = [[], []] gave rows=[], rows[0]=undefined → null
     expect(fakeClient.query).toHaveBeenCalled();
     expect(fakeClient.release).toHaveBeenCalled();
   });

@@ -97,8 +97,17 @@ const config = {
   },
 
   rag: {
-    // Number of chunks to retrieve per search query.
-    topK:         Number(process.env.RAG_TOP_K)           || 20,
+    // Stage 1: number of candidate chunks to retrieve from the vector index.
+    // These are then filtered by similarity threshold and diversity rules.
+    candidateK:   Number(process.env.RAG_CANDIDATE_K)     || 20,
+    // Stage 2: maximum number of chunks to pass to the LLM as context.
+    finalK:       Number(process.env.RAG_FINAL_K)         || 8,
+    // Minimum cosine similarity (0–1) required to include a chunk.
+    // Chunks with similarity < this threshold are discarded before LLM call.
+    // IMPORTANT: this is cosine SIMILARITY (1 - cosine distance), not distance.
+    minSimilarity: Number(process.env.RAG_MIN_SIMILARITY) || 0.30,
+    // Legacy alias kept so existing code that reads config.rag.topK still works.
+    get topK() { return this.candidateK; },
     // Maximum characters allowed per knowledge document upload.
     maxDocChars:  Number(process.env.RAG_MAX_DOC_CHARS)   || 1_000_000,
     // Target tokens per chunk.

@@ -18,6 +18,7 @@ async function _unwrap<T>(promise: Promise<{ data: ApiResponse<T> }>): Promise<T
 }
 
 const BASE = "/knowledge";
+const STUDENT_BASE = "/student/knowledge";
 
 export const knowledgeApi = {
   // ── Curricula ──────────────────────────────────────────────────────────
@@ -92,4 +93,27 @@ export const knowledgeApi = {
     chapterId?: number;
     topicId?: number;
   }) => _unwrap<SearchResponse>(apiClient.post(`${BASE}/search`, payload)),
+};
+
+// ── Student read-only hierarchy ───────────────────────────────────────────────
+// Points to /student/knowledge/* endpoints which scope the hierarchy through
+// the student's classroom → teacher_id. Students see only their teacher's data.
+export const studentKnowledgeApi = {
+  listCurricula: () =>
+    _unwrap<{ curricula: Curriculum[] }>(apiClient.get(`${STUDENT_BASE}/curricula`)),
+
+  listSubjects: (curriculumId: number) =>
+    _unwrap<{ subjects: Subject[] }>(
+      apiClient.get(`${STUDENT_BASE}/curricula/${curriculumId}/subjects`)
+    ),
+
+  listChapters: (subjectId: number) =>
+    _unwrap<{ chapters: Chapter[] }>(
+      apiClient.get(`${STUDENT_BASE}/subjects/${subjectId}/chapters`)
+    ),
+
+  listTopics: (chapterId: number) =>
+    _unwrap<{ topics: Topic[] }>(
+      apiClient.get(`${STUDENT_BASE}/chapters/${chapterId}/topics`)
+    ),
 };

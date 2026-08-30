@@ -42,4 +42,42 @@ describe('permissions.constants', () => {
       expect(allValidCodes.has(code)).toBe(true);
     });
   });
+
+  // Sprint 6 — Student AI Practice permissions
+  it('student has question:practice_generate permission', () => {
+    const perms = permissionsForRole('student');
+    expect(perms).toContain(PERMISSIONS.QUESTION_PRACTICE_GENERATE);
+  });
+
+  it('teacher does NOT have question:practice_generate (practice is student-only)', () => {
+    const perms = permissionsForRole('teacher');
+    expect(perms).not.toContain(PERMISSIONS.QUESTION_PRACTICE_GENERATE);
+  });
+
+  it('student does NOT have question:approve or question:publish (teacher-only)', () => {
+    const perms = permissionsForRole('student');
+    expect(perms).not.toContain(PERMISSIONS.QUESTION_APPROVE);
+    expect(perms).not.toContain(PERMISSIONS.QUESTION_PUBLISH);
+  });
+
+  // Sprint 7 — Quiz Assignment permissions
+  it('teacher has quiz:create and quiz:manage_own permissions', () => {
+    const perms = permissionsForRole('teacher');
+    expect(perms).toContain(PERMISSIONS.QUIZ_CREATE);
+    expect(perms).toContain(PERMISSIONS.QUIZ_MANAGE_OWN);
+    expect(perms).not.toContain(PERMISSIONS.QUIZ_ATTEMPT);
+  });
+
+  it('student has quiz:attempt permission', () => {
+    const perms = permissionsForRole('student');
+    expect(perms).toContain(PERMISSIONS.QUIZ_ATTEMPT);
+    expect(perms).not.toContain(PERMISSIONS.QUIZ_CREATE);
+    expect(perms).not.toContain(PERMISSIONS.QUIZ_MANAGE_OWN);
+  });
+
+  it('QUIZ_CREATE, QUIZ_MANAGE_OWN, QUIZ_ATTEMPT are defined in PERMISSIONS catalogue', () => {
+    expect(PERMISSIONS.QUIZ_CREATE).toBe('quiz:create');
+    expect(PERMISSIONS.QUIZ_MANAGE_OWN).toBe('quiz:manage_own');
+    expect(PERMISSIONS.QUIZ_ATTEMPT).toBe('quiz:attempt');
+  });
 });

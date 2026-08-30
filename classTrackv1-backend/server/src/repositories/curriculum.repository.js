@@ -57,6 +57,31 @@ class CurriculumRepository extends BaseRepository {
     );
     return rows.length > 0;
   }
+
+  /**
+   * Hard-delete a curriculum and return the row so the caller can confirm
+   * ownership before it is gone.  The FK ON DELETE CASCADE on subjects
+   * propagates the delete down: subjects → chapters → topics →
+   * knowledge_documents → knowledge_chunks.
+   *
+   * Must be called inside a transaction client when the caller also needs
+   * to do additional work (e.g. physical file cleanup) atomically.
+   *
+   * @param {number} id
+   * @param {number} teacherId
+   * @param {object} [client]  Optional pg transaction client
+   * @returns {Promise<boolean>} true when a row was deleted, false when not found
+   */
+  async hardDeleteOwned(id, teacherId, client) {
+    const executor = client || this.pool;
+    const [rows] = await executor.query(
+      `DELETE FROM curricula
+       WHERE id = $1 AND teacher_id = $2
+       RETURNING id`,
+      [id, teacherId]
+    );
+    return rows.length > 0;
+  }
 }
 
 module.exports = new CurriculumRepository();

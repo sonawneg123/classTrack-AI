@@ -1,8 +1,9 @@
 // src/features/knowledge/hooks/useKnowledge.ts
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
 import { useSnackbar } from "notistack";
-import { knowledgeApi } from "../api/knowledgeApi";
+import { knowledgeApi, studentKnowledgeApi } from "../api/knowledgeApi";
 import { getErrorMessage } from "@utils/apiError";
 
 // ── Query keys ────────────────────────────────────────────────────────────────
@@ -14,6 +15,11 @@ const K = {
   documents: (tId: number) => ["knowledge", "documents", tId] as const,
   documentStatus: (docId: number) => ["knowledge", "document-status", docId] as const,
 };
+
+// Maximum time we will keep polling before giving up (10 minutes).
+// This is a frontend safety net only — it does NOT hide a backend failure.
+// Backend failures are surfaced as status=failed with failure_message.
+const MAX_POLL_MS = 10 * 60 * 1000;
 
 // ── Curricula ─────────────────────────────────────────────────────────────────
 export function useCurricula() {
@@ -162,15 +168,38 @@ export function useDeleteTopic() {
 
 // ── Documents ─────────────────────────────────────────────────────────────────
 export function useDocuments(topicId: number | null) {
+  // Track when polling started so we can apply a maximum polling duration.
+  const pollStartRef = useRef<number | null>(null);
+
   return useQuery({
     queryKey: K.documents(topicId!),
     queryFn: () => knowledgeApi.listDocuments(topicId!),
     enabled: !!topicId,
     refetchInterval: (query) => {
-      // Poll every 3 seconds if any document is still processing/uploaded
       const docs = (query.state.data as { documents: { status: string }[] } | undefined)?.documents;
       const hasPending = docs?.some((d) => d.status === "processing" || d.status === "uploaded");
-      return hasPending ? 3000 : false;
+
+      if (!hasPending) {
+        // All documents are settled (ready or failed) — stop polling
+        pollStartRef.current = null;
+        return false;
+      }
+
+      // Record when polling began so we can enforce a maximum duration
+      if (pollStartRef.current === null) {
+        pollStartRef.current = Date.now();
+      }
+
+      // Safety net: stop polling after MAX_POLL_MS to avoid runaway requests.
+      // This does NOT hide a backend failure — a failed document will already
+      // have status=failed with a failure_message before this limit is reached
+      // in any normal scenario.
+      if (Date.now() - pollStartRef.current > MAX_POLL_MS) {
+        pollStartRef.current = null;
+        return false;
+      }
+
+      return 3000;
     },
   });
 }
@@ -230,5 +259,48 @@ export function useKnowledgeSearch() {
       topicId?: number;
     }) => knowledgeApi.search(payload),
     onError: (e) => enqueueSnackbar(getErrorMessage(e), { variant: "error" }),
+  });
+}
+
+// ── Student read-only hierarchy hooks ─────────────────────────────────────────
+// Uses /student/knowledge/* endpoints scoped to the student's classroom teacher.
+// These are separate from the teacher hooks above — students must NEVER call
+// /knowledge/* (teacher-only endpoints).
+
+const SK = {
+  curricula: ["student-knowledge", "curricula"] as const,
+  subjects:  (cId: number) => ["student-knowledge", "subjects", cId] as const,
+  chapters:  (sId: number) => ["student-knowledge", "chapters", sId] as const,
+  topics:    (chId: number) => ["student-knowledge", "topics", chId] as const,
+};
+
+export function useStudentCurricula() {
+  return useQuery({
+    queryKey: SK.curricula,
+    queryFn: () => studentKnowledgeApi.listCurricula(),
+  });
+}
+
+export function useStudentSubjects(curriculumId: number | null) {
+  return useQuery({
+    queryKey: SK.subjects(curriculumId!),
+    queryFn: () => studentKnowledgeApi.listSubjects(curriculumId!),
+    enabled: !!curriculumId,
+  });
+}
+
+export function useStudentChapters(subjectId: number | null) {
+  return useQuery({
+    queryKey: SK.chapters(subjectId!),
+    queryFn: () => studentKnowledgeApi.listChapters(subjectId!),
+    enabled: !!subjectId,
+  });
+}
+
+export function useStudentTopics(chapterId: number | null) {
+  return useQuery({
+    queryKey: SK.topics(chapterId!),
+    queryFn: () => studentKnowledgeApi.listTopics(chapterId!),
+    enabled: !!chapterId,
   });
 }

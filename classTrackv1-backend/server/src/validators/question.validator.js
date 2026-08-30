@@ -13,6 +13,10 @@ const questionIdParam = {
   params: Joi.object({ questionId: Joi.number().integer().positive().required() }),
 };
 
+const topicIdParam = {
+  params: Joi.object({ topicId: Joi.number().integer().positive().required() }),
+};
+
 const generateQuestions = {
   body: Joi.object({
     topicId:      Joi.number().integer().positive().required(),
@@ -26,7 +30,7 @@ const listByTopic = {
   params: Joi.object({ topicId: Joi.number().integer().positive().required() }),
   query: Joi.object({
     status: Joi.string()
-      .valid('generated','validated','pending_approval','approved','published','rejected','archived')
+      .valid('generated','validated','pending_approval','approved','published','rejected','archived','practice')
       .optional(),
   }),
 };
@@ -38,9 +42,25 @@ const rejectQuestion = {
   }),
 };
 
+const submitAttempt = {
+  params: Joi.object({ questionId: Joi.number().integer().positive().required() }),
+  body: Joi.object({
+    studentAnswer: Joi.string().min(1).max(5000).required(),
+  }),
+};
+
+const listMyAttempts = {
+  query: Joi.object({
+    topicId: Joi.number().integer().positive().optional(),
+  }),
+};
+
 module.exports = {
   questionIdParam,
+  topicIdParam,
   generateQuestions,
   listByTopic,
   rejectQuestion,
+  submitAttempt,
+  listMyAttempts,
 };

@@ -126,10 +126,25 @@ class QuestionBankRepository extends BaseRepository {
   }
 
   /**
-   * List questions awaiting teacher approval (status = pending_approval)
+   * List questions in the teacher review queue.
+   * Returns all questions with status IN ('pending_approval', 'approved')
    * for all topics owned by the given teacher.
+   *
+   * Optionally filter by a single status via opts.status.
+   *
+   * @param {number} teacherId
+   * @param {object} [opts]
+   * @param {string} [opts.status]  — filter to a specific status
    */
-  async listPendingApproval(teacherId) {
+  async listReviewQueue(teacherId, opts = {}) {
+    const params = [teacherId];
+    let statusFilter = `q.status IN ('pending_approval', 'approved')`;
+
+    if (opts.status) {
+      params.push(opts.status);
+      statusFilter = `q.status = $${params.length}`;
+    }
+
     const [rows] = await this.pool.query(
       `SELECT
          q.id, q.question_type, q.difficulty, q.marks,
@@ -138,6 +153,7 @@ class QuestionBankRepository extends BaseRepository {
          q.topic_id, q.chapter_id, q.subject_id, q.curriculum_id,
          q.source_document_id, q.source_chunk_id,
          q.generation_model, q.created_by, q.created_by_role,
+         q.approved_by, q.approved_at, q.rejected_reason,
          q.created_at, q.updated_at,
          t.name AS topic_name,
          ch.name AS chapter_name,
@@ -148,11 +164,66 @@ class QuestionBankRepository extends BaseRepository {
        JOIN chapters  ch ON ch.id = q.chapter_id
        JOIN subjects  s  ON s.id  = q.subject_id
        JOIN curricula cu ON cu.id = q.curriculum_id
-       WHERE q.status = 'pending_approval'
+       WHERE ${statusFilter}
          AND cu.teacher_id = $1
          AND cu.deleted_at IS NULL
        ORDER BY q.created_at ASC`,
-      [teacherId]
+      params
+    );
+    return rows;
+  }
+
+  /**
+   * @deprecated Use listReviewQueue instead.
+   * Kept for backwards compatibility with existing callers.
+   */
+  async listPendingApproval(teacherId) {
+    return this.listReviewQueue(teacherId, { status: 'pending_approval' });
+  }
+
+  /**
+   * List all published questions for a teacher across all their topics.
+   * Enriched with topic/chapter/subject/curriculum names.
+   *
+   * @param {number} teacherId
+   * @param {object} [opts]
+   * @param {number} [opts.topicId]   — optional topic filter
+   */
+  async listPublishedForTeacher(teacherId, opts = {}) {
+    const params = [teacherId];
+    const conditions = [
+      `q.status = 'published'`,
+      `cu.teacher_id = $1`,
+      `cu.deleted_at IS NULL`,
+    ];
+
+    if (opts.topicId) {
+      params.push(opts.topicId);
+      conditions.push(`q.topic_id = $${params.length}`);
+    }
+
+    const [rows] = await this.pool.query(
+      `SELECT
+         q.id, q.question_type, q.difficulty, q.marks,
+         q.question_text, q.options, q.correct_answer, q.explanation,
+         q.status,
+         q.topic_id, q.chapter_id, q.subject_id, q.curriculum_id,
+         q.source_document_id, q.source_chunk_id,
+         q.generation_model, q.created_by, q.created_by_role,
+         q.approved_by, q.approved_at,
+         q.created_at, q.updated_at,
+         t.name AS topic_name,
+         ch.name AS chapter_name,
+         s.name  AS subject_name,
+         cu.name AS curriculum_name
+       FROM question_bank q
+       JOIN topics    t  ON t.id  = q.topic_id
+       JOIN chapters  ch ON ch.id = q.chapter_id
+       JOIN subjects  s  ON s.id  = q.subject_id
+       JOIN curricula cu ON cu.id = q.curriculum_id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY q.topic_id ASC, q.created_at DESC`,
+      params
     );
     return rows;
   }
@@ -323,6 +394,152 @@ class QuestionBankRepository extends BaseRepository {
       [topicId, studentTeacherId]
     );
     return rows;
+  }
+  /**
+   * Count the number of published questions for a topic owned by a teacher.
+   * Used by the batch-add endpoint to validate requested counts.
+   *
+   * @param {number} topicId
+   * @param {number} teacherId
+   * @returns {Promise<number>}
+   */
+  async countPublishedByTopic(topicId, teacherId) {
+    const [rows] = await this.pool.query(
+      `SELECT COUNT(*) AS n
+       FROM question_bank q
+       JOIN curricula cu ON cu.id = q.curriculum_id
+       WHERE q.topic_id = $1
+         AND cu.teacher_id = $2
+         AND cu.deleted_at IS NULL
+         AND q.status = 'published'`,
+      [topicId, teacherId]
+    );
+    return Number(rows[0].n);
+  }
+
+  /**
+   * Select up to `count` published questions from a topic, excluding any IDs
+   * in `excludeIds`. Uses ORDER BY RANDOM() for quick-select mode.
+   *
+   * @param {number}   topicId
+   * @param {number}   teacherId
+   * @param {number}   count
+   * @param {number[]} excludeIds  — question IDs already in the quiz
+   * @returns {Promise<object[]>}  Array of question rows
+   */
+  async selectPublishedRandom(topicId, teacherId, count, excludeIds) {
+    const params = [topicId, teacherId, count];
+    let excludeClause = '';
+    if (excludeIds && excludeIds.length) {
+      excludeClause = `AND q.id NOT IN (${excludeIds.map((_, i) => `$${params.length + i + 1}`).join(', ')})`;
+      excludeIds.forEach(id => params.push(id));
+    }
+    const [rows] = await this.pool.query(
+      `SELECT
+         q.id, q.question_type, q.difficulty, q.marks,
+         q.question_text, q.options, q.correct_answer, q.explanation,
+         q.status, q.topic_id, q.chapter_id, q.subject_id, q.curriculum_id,
+         q.created_by, q.created_by_role, q.created_at
+       FROM question_bank q
+       JOIN curricula cu ON cu.id = q.curriculum_id
+       WHERE q.topic_id = $1
+         AND cu.teacher_id = $2
+         AND cu.deleted_at IS NULL
+         AND q.status = 'published'
+         ${excludeClause}
+       ORDER BY RANDOM()
+       LIMIT $3`,
+      params
+    );
+    return rows;
+  }
+
+  /**
+   * Select specific published questions by their IDs, ensuring they belong to
+   * the teacher's curriculum chain and have status='published'.
+   *
+   * @param {number[]} questionIds
+   * @param {number}   teacherId
+   * @returns {Promise<object[]>}
+   */
+  async selectPublishedByIds(questionIds, teacherId) {
+    if (!questionIds.length) return [];
+    const placeholders = questionIds.map((_, i) => `$${i + 2}`).join(', ');
+    const [rows] = await this.pool.query(
+      `SELECT q.id, q.question_type, q.difficulty, q.marks,
+              q.question_text, q.options, q.correct_answer, q.explanation,
+              q.status, q.topic_id, q.chapter_id, q.subject_id, q.curriculum_id
+       FROM question_bank q
+       JOIN curricula cu ON cu.id = q.curriculum_id
+       WHERE q.id IN (${placeholders})
+         AND cu.teacher_id = $1
+         AND cu.deleted_at IS NULL
+         AND q.status = 'published'`,
+      [teacherId, ...questionIds]
+    );
+    return rows;
+  }
+
+  /**
+   * List all 'practice' questions created by a specific student.
+   * Optionally filtered by topic.
+   *
+   * IDOR protection: only questions where created_by = studentId AND
+   *   created_by_role = 'student' AND status = 'practice' are returned.
+   *
+   * @param {number} studentId
+   * @param {object} [opts]
+   * @param {number} [opts.topicId]
+   */
+  async listPracticeByStudent(studentId, opts = {}) {
+    const params = [studentId];
+    const conditions = [
+      `q.created_by = $1`,
+      `q.created_by_role = 'student'`,
+      `q.status = 'practice'`,
+    ];
+
+    if (opts.topicId) {
+      params.push(opts.topicId);
+      conditions.push(`q.topic_id = $${params.length}`);
+    }
+
+    const [rows] = await this.pool.query(
+      `SELECT
+         q.id, q.question_type, q.difficulty, q.marks,
+         q.question_text, q.options, q.correct_answer, q.explanation,
+         q.status,
+         q.curriculum_id, q.subject_id, q.chapter_id, q.topic_id,
+         q.source_document_id, q.source_chunk_id,
+         q.generation_model, q.generation_provider,
+         q.created_by, q.created_by_role,
+         q.created_at, q.updated_at
+       FROM question_bank q
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY q.created_at DESC`,
+      params
+    );
+    return rows;
+  }
+
+  /**
+   * Find a single 'practice' question by id, owned by the given student.
+   * Used for student practice attempts — strict ownership.
+   *
+   * @param {number} id
+   * @param {number} studentId
+   */
+  async findPracticeByIdForStudent(id, studentId) {
+    const [rows] = await this.pool.query(
+      `SELECT q.*
+       FROM question_bank q
+       WHERE q.id = $1
+         AND q.created_by = $2
+         AND q.created_by_role = 'student'
+         AND q.status = 'practice'`,
+      [id, studentId]
+    );
+    return rows[0] || null;
   }
 }
 

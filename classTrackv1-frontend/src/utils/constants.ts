@@ -27,6 +27,10 @@ export const ROUTES = {
     EVALUATIONS: "/teacher/evaluations",
     KNOWLEDGE_BASE: "/teacher/knowledge",
     QUESTION_BANK: "/teacher/question-bank",
+    QUIZ_RESULTS: "/teacher/quiz-results",
+    QUIZ_ASSIGNMENTS: "/teacher/quiz-assignments",
+    QUIZ_ASSIGNMENT_DETAIL: (id: number | string) =>
+      `/teacher/quiz-assignments/${id}`,
     GRADING_OVERVIEW: (classroomId: number | string) =>
       `/teacher/classrooms/${classroomId}/grading`,
     TASK_SUBMISSIONS: (taskId: number | string) =>
@@ -40,6 +44,10 @@ export const ROUTES = {
     ASSIGNMENTS: "/student/assignments",
     ASSIGNMENT_DETAIL: (taskId: number | string) => `/student/assignments/${taskId}`,
     QUESTION_BANK: "/student/question-bank",
+    QUIZ_RESULTS: "/student/quiz-results",
+    PRACTICE: "/student/practice",
+    QUIZ_ASSIGNMENTS: "/student/quiz-assignments",
+    TAKE_QUIZ: (id: number | string) => `/student/quiz-assignments/${id}`,
   },
 } as const;
 

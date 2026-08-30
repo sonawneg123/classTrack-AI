@@ -14,10 +14,17 @@ import TaskSubmissionsPage from "@pages/teacher/TaskSubmissionsPage";
 import SubmissionDetailPage from "@pages/teacher/SubmissionDetailPage";
 import KnowledgeBasePage from "@pages/teacher/KnowledgeBasePage";
 import TeacherQuestionBankPage from "@pages/teacher/QuestionBankPage";
+import TeacherQuizResultsPage from "@pages/teacher/QuizResultsPage";
+import TeacherQuizAssignmentsPage from "@pages/teacher/QuizAssignmentsPage";
+import TeacherQuizAssignmentDetailPage from "@pages/teacher/QuizAssignmentDetailPage";
 import StudentDashboardPage from "@pages/student/DashboardPage";
 import StudentAssignmentsPage from "@pages/student/AssignmentsPage";
 import StudentAssignmentDetailPage from "@pages/student/AssignmentDetailPage";
 import StudentQuestionBankPage from "@pages/student/QuestionBankPage";
+import StudentQuizResultsPage from "@pages/student/QuizResultsPage";
+import StudentPracticePage from "@pages/student/PracticePage";
+import StudentQuizAssignmentsPage from "@pages/student/QuizAssignmentsPage";
+import TakeQuizPage from "@pages/student/TakeQuizPage";
 import { ProtectedRoute } from "./ProtectedRoute";
 import { RoleRoute } from "./RoleRoute";
 import { ROUTES } from "@utils/constants";
@@ -57,6 +64,9 @@ export default function AppRoutes() {
           <Route path="/teacher/submissions/:submissionId" element={<SubmissionDetailPage />} />
           <Route path={ROUTES.TEACHER.KNOWLEDGE_BASE} element={<KnowledgeBasePage />} />
           <Route path={ROUTES.TEACHER.QUESTION_BANK} element={<TeacherQuestionBankPage />} />
+          <Route path={ROUTES.TEACHER.QUIZ_RESULTS} element={<TeacherQuizResultsPage />} />
+          <Route path={ROUTES.TEACHER.QUIZ_ASSIGNMENTS} element={<TeacherQuizAssignmentsPage />} />
+          <Route path="/teacher/quiz-assignments/:quizId" element={<TeacherQuizAssignmentDetailPage />} />
         </Route>
 
         <Route element={<RoleRoute allowedRoles={["student"]} />}>
@@ -64,6 +74,10 @@ export default function AppRoutes() {
           <Route path={ROUTES.STUDENT.ASSIGNMENTS} element={<StudentAssignmentsPage />} />
           <Route path="/student/assignments/:taskId" element={<StudentAssignmentDetailPage />} />
           <Route path={ROUTES.STUDENT.QUESTION_BANK} element={<StudentQuestionBankPage />} />
+          <Route path={ROUTES.STUDENT.QUIZ_RESULTS} element={<StudentQuizResultsPage />} />
+          <Route path={ROUTES.STUDENT.PRACTICE} element={<StudentPracticePage />} />
+          <Route path={ROUTES.STUDENT.QUIZ_ASSIGNMENTS} element={<StudentQuizAssignmentsPage />} />
+          <Route path="/student/quiz-assignments/:quizId" element={<TakeQuizPage />} />
         </Route>
       </Route>
 

@@ -3,7 +3,30 @@
  *
  * Business logic for the Knowledge Base.
  * Controllers call these — no SQL in controllers.
+ *
+ * DELETION LIFECYCLE
+ * ──────────────────
+ * Soft-delete is used only for individual document archival (where we want
+ * the record to remain in audit history).
+ *
+ * Structural deletions (curriculum / subject / chapter / topic) are now
+ * HARD DELETEs inside a transaction.  The FK ON DELETE CASCADE constraints
+ * defined in V3__rag_knowledge_base.sql propagate the deletion automatically:
+ *
+ *   DELETE curricula
+ *     → subjects (CASCADE)
+ *       → chapters (CASCADE)
+ *         → topics (CASCADE)
+ *           → knowledge_documents (CASCADE)
+ *             → knowledge_chunks (CASCADE, incl. vector embeddings)
+ *
+ * Physical files (PDFs etc.) stored on disk are collected BEFORE the DB
+ * delete and removed AFTER a successful commit.  File removal failures are
+ * logged but never cause the transaction to roll back — a missing file is
+ * less harmful than leaving orphaned DB records.
  */
+const fs     = require('fs');
+const { pool } = require('../../database/connection');
 const { ApiError } = require('../../utils/response.util');
 const logger = require('../../utils/logger.util');
 
@@ -15,6 +38,25 @@ const docRepo        = require('../../repositories/knowledgeDocument.repository'
 const chunkRepo      = require('../../repositories/knowledgeChunk.repository');
 const { registerAndProcess, retryDocument } = require('./ingestion.service');
 const { search } = require('./retrieval.service');
+
+// ─── Physical-file cleanup helper ────────────────────────────────────────────
+
+/**
+ * Delete physical files from disk.  Never throws — errors are logged only.
+ * Called AFTER a successful DB commit so the DB is the source of truth.
+ *
+ * @param {string[]} filePaths
+ */
+function _deletePhysicalFiles(filePaths) {
+  for (const fp of filePaths) {
+    if (!fp) continue;
+    fs.unlink(fp, (err) => {
+      if (err && err.code !== 'ENOENT') {
+        logger.warn('[KnowledgeService] Physical file deletion failed', { path: fp, error: err.message });
+      }
+    });
+  }
+}
 
 // ─── Ownership guards ─────────────────────────────────────────────────────────
 
@@ -62,9 +104,56 @@ async function getCurriculum(id, teacherId) {
   return _requireCurriculum(id, teacherId);
 }
 
+/**
+ * Permanently delete a curriculum and ALL its owned knowledge data.
+ *
+ * Transaction boundary:
+ *   1. Verify ownership (outside tx — cheap read, avoids holding a lock early).
+ *   2. BEGIN
+ *   3. Collect file paths of every document under this curriculum.
+ *   4. Hard-delete the curricula row  → FK CASCADE removes subjects / chapters /
+ *      topics / knowledge_documents / knowledge_chunks automatically.
+ *   5. COMMIT
+ *   6. Delete physical files (best-effort, after commit).
+ *
+ * If the DB delete fails the transaction rolls back and no physical files
+ * are removed.
+ *
+ * @param {number} id
+ * @param {number} teacherId
+ */
 async function deleteCurriculum(id, teacherId) {
-  const deleted = await curriculumRepo.softDeleteOwned(id, teacherId);
-  if (!deleted) throw ApiError.notFound('Curriculum not found.');
+  // Ownership guard (fast path, outside transaction)
+  await _requireCurriculum(id, teacherId);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Collect physical file paths before the cascade removes the rows
+    const filePaths = await docRepo.listFilePathsByCurriculum(id, teacherId, client);
+
+    // Hard-delete; FK CASCADE handles the entire hierarchy
+    const deleted = await curriculumRepo.hardDeleteOwned(id, teacherId, client);
+    if (!deleted) {
+      await client.query('ROLLBACK');
+      throw ApiError.notFound('Curriculum not found.');
+    }
+
+    await client.query('COMMIT');
+
+    // Best-effort physical file removal (after successful commit)
+    _deletePhysicalFiles(filePaths);
+
+    logger.info('[KnowledgeService] Curriculum hard-deleted with cascade', {
+      curriculumId: id, teacherId, filesRemoved: filePaths.length,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 // ─── Subjects ─────────────────────────────────────────────────────────────────
@@ -79,9 +168,37 @@ async function createSubject(curriculumId, teacherId, { name, description }) {
   return subjectRepo.createForTeacher(teacherId, curriculumId, { name, description });
 }
 
+/**
+ * Permanently delete a subject and all its owned knowledge data.
+ * Same transaction + file-cleanup pattern as deleteCurriculum.
+ */
 async function deleteSubject(id, teacherId) {
-  const deleted = await subjectRepo.softDeleteOwned(id, teacherId);
-  if (!deleted) throw ApiError.notFound('Subject not found.');
+  await _requireSubject(id, teacherId);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const filePaths = await docRepo.listFilePathsBySubject(id, teacherId, client);
+
+    const deleted = await subjectRepo.hardDeleteOwned(id, teacherId, client);
+    if (!deleted) {
+      await client.query('ROLLBACK');
+      throw ApiError.notFound('Subject not found.');
+    }
+
+    await client.query('COMMIT');
+    _deletePhysicalFiles(filePaths);
+
+    logger.info('[KnowledgeService] Subject hard-deleted with cascade', {
+      subjectId: id, teacherId, filesRemoved: filePaths.length,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 // ─── Chapters ─────────────────────────────────────────────────────────────────
@@ -96,9 +213,36 @@ async function createChapter(subjectId, teacherId, { name, description, orderInd
   return chapterRepo.createForTeacher(teacherId, subjectId, { name, description, orderIndex });
 }
 
+/**
+ * Permanently delete a chapter and all its owned knowledge data.
+ */
 async function deleteChapter(id, teacherId) {
-  const deleted = await chapterRepo.softDeleteOwned(id, teacherId);
-  if (!deleted) throw ApiError.notFound('Chapter not found.');
+  await _requireChapter(id, teacherId);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const filePaths = await docRepo.listFilePathsByChapter(id, teacherId, client);
+
+    const deleted = await chapterRepo.hardDeleteOwned(id, teacherId, client);
+    if (!deleted) {
+      await client.query('ROLLBACK');
+      throw ApiError.notFound('Chapter not found.');
+    }
+
+    await client.query('COMMIT');
+    _deletePhysicalFiles(filePaths);
+
+    logger.info('[KnowledgeService] Chapter hard-deleted with cascade', {
+      chapterId: id, teacherId, filesRemoved: filePaths.length,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 // ─── Topics ───────────────────────────────────────────────────────────────────
@@ -113,9 +257,36 @@ async function createTopic(chapterId, teacherId, { name, description, orderIndex
   return topicRepo.createForTeacher(teacherId, chapterId, { name, description, orderIndex });
 }
 
+/**
+ * Permanently delete a topic and all its owned knowledge data.
+ */
 async function deleteTopic(id, teacherId) {
-  const deleted = await topicRepo.softDeleteOwned(id, teacherId);
-  if (!deleted) throw ApiError.notFound('Topic not found.');
+  await _requireTopic(id, teacherId);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const filePaths = await docRepo.listFilePathsByTopic(id, teacherId, client);
+
+    const deleted = await topicRepo.hardDeleteOwned(id, teacherId, client);
+    if (!deleted) {
+      await client.query('ROLLBACK');
+      throw ApiError.notFound('Topic not found.');
+    }
+
+    await client.query('COMMIT');
+    _deletePhysicalFiles(filePaths);
+
+    logger.info('[KnowledgeService] Topic hard-deleted with cascade', {
+      topicId: id, teacherId, filesRemoved: filePaths.length,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 // ─── Documents ────────────────────────────────────────────────────────────────
@@ -160,6 +331,12 @@ async function retryFailedDocument(documentId, teacherId) {
   return reset;
 }
 
+/**
+ * Archive (soft-delete) a single document.
+ * Soft-delete is intentional here — we want to preserve the record for audit.
+ * The content_hash check in ingestion.service considers deleted_at, so an
+ * archived document does NOT block re-uploads of the same file.
+ */
 async function archiveDocument(documentId, teacherId) {
   const deleted = await docRepo.softDeleteOwned(documentId, teacherId);
   if (!deleted) throw ApiError.notFound('Document not found.');

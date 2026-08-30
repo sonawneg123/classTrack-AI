@@ -38,6 +38,15 @@ const PERMISSIONS = {
   QUESTION_APPROVE:      'question:approve',
   QUESTION_PUBLISH:      'question:publish',
   QUESTION_ARCHIVE:      'question:archive',
+  QUESTION_ATTEMPT:          'question:attempt',
+  // Sprint 5 — Quiz Results
+  QUESTION_VIEW_RESULTS:     'question:view_results',
+  // Sprint 6 — Student AI Practice
+  QUESTION_PRACTICE_GENERATE: 'question:practice_generate',
+  // Sprint 7 — Quiz Assignments
+  QUIZ_CREATE:                 'quiz:create',
+  QUIZ_MANAGE_OWN:             'quiz:manage_own',
+  QUIZ_ATTEMPT:                'quiz:attempt',
 };
 
 const ROLE_PERMISSIONS = {
@@ -66,6 +75,11 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.QUESTION_APPROVE,
     PERMISSIONS.QUESTION_PUBLISH,
     PERMISSIONS.QUESTION_ARCHIVE,
+    // Sprint 5 — Quiz Results
+    PERMISSIONS.QUESTION_VIEW_RESULTS,
+    // Sprint 7 — Quiz Assignments
+    PERMISSIONS.QUIZ_CREATE,
+    PERMISSIONS.QUIZ_MANAGE_OWN,
   ],
   student: [
     PERMISSIONS.SUBMISSION_SUBMIT,
@@ -75,6 +89,12 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.QUESTION_GENERATE,
     PERMISSIONS.QUESTION_VIEW_OWN,      // view own generated questions (all statuses)
     PERMISSIONS.QUESTION_VIEW_APPROVED, // view published questions from teacher
+    // Sprint 4 — Quiz attempts
+    PERMISSIONS.QUESTION_ATTEMPT,       // submit an answer attempt on a published question
+    // Sprint 6 — Student AI Practice (separate from teacher question:generate)
+    PERMISSIONS.QUESTION_PRACTICE_GENERATE,
+    // Sprint 7 — Quiz Assignments
+    PERMISSIONS.QUIZ_ATTEMPT,
   ],
 };
 

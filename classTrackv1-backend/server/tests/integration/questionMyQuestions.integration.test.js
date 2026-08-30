@@ -65,6 +65,7 @@ jest.mock('../../src/repositories/questionBank.repository', () => ({
   insert: jest.fn(), existsDuplicate: jest.fn(),
   findByIdForTeacher: jest.fn(), findPublishedById: jest.fn(),
   listByTopic: jest.fn(), listPendingApproval: jest.fn(),
+  listReviewQueue: jest.fn(), listPublishedForTeacher: jest.fn(),
   listByStudent: jest.fn(),
   listPublishedForStudent: jest.fn(),
   updateStatus: jest.fn(), textHash: jest.fn(),

@@ -1,52 +1,56 @@
 // src/pages/student/QuestionBankPage.tsx
 //
-// Student Question Bank — Sprint 3
-// Students select a topic, choose parameters, and generate questions.
-// They can also browse published questions for any topic.
+// Student Question Bank — Sprint 3 + Sprint 4 + Sprint 6
 //
-// Persistence fix: generated questions are fetched from the database on mount
-// via useMyQuestions (polls every 15 s). Refreshing the browser no longer
-// loses questions — the database is the source of truth.
+// This page shows:
+//   1. "My Generated Questions" — questions this student generated that are
+//      pending teacher approval (status = pending_approval / approved / rejected).
+//      These are NOT practice questions — they entered the teacher's review flow.
 //
-// Real-time sync fix: useMyQuestions uses refetchInterval (15 s) +
-// refetchOnWindowFocus so teacher approval/publish changes propagate to the
-// student UI without a manual refresh.
+//   2. "Published Questions" — teacher-approved + published questions for a topic.
+//      Students can attempt these using the QuizQuestionCard component.
+//
+// Sprint 6 change:
+//   - Student AI Practice questions (status = 'practice') now live at /student/practice.
+//   - The "My Questions" section no longer shows 'practice' status questions.
+//   - The AttemptQuestionCard is replaced with the reusable QuizQuestionCard.
+//   - MCQ options now use radio buttons (fixes the "plain text options" bug).
+//   - "Show Answer" button removed. Answer revealed only after submission.
 
 import { useState } from "react";
 import {
-  Box, Button, Chip, CircularProgress, Collapse, Divider,
-  FormControl, FormHelperText, InputLabel, MenuItem,
-  Paper, Select, Stack, TextField, Typography, Alert,
-  Accordion, AccordionSummary, AccordionDetails,
+  Alert,
+  Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Collapse,
+  Divider,
+  LinearProgress,
+  Paper,
+  Stack,
+  Typography,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from "@mui/material";
-import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import QuizOutlinedIcon from "@mui/icons-material/QuizOutlined";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
+import { useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@layouts/DashboardLayout";
 import { NotebookPage, NotebookCard } from "@components/notebook";
+import { QuizQuestionCard } from "@components/quiz/QuizQuestionCard";
 import {
-  useGenerateQuestions,
   useMyQuestions,
   usePublishedQuestions,
+  useSubmitAttempt,
+  useMyAttempts,
 } from "@features/questions/hooks/useQuestions";
-import type { QuestionType, QuestionDifficulty, Question, QuestionStatus } from "@/types/question";
-
-const QUESTION_TYPES: { value: QuestionType; label: string }[] = [
-  { value: "mcq",           label: "Multiple Choice" },
-  { value: "true_false",    label: "True / False" },
-  { value: "fill_blank",    label: "Fill in the Blank" },
-  { value: "one_word",      label: "One Word Answer" },
-  { value: "short_answer",  label: "Short Answer" },
-  { value: "descriptive",   label: "Descriptive" },
-  { value: "matching",      label: "Matching" },
-  { value: "scenario",      label: "Scenario-Based" },
-];
-
-const DIFFICULTIES: { value: QuestionDifficulty; label: string }[] = [
-  { value: "easy",   label: "Easy" },
-  { value: "medium", label: "Medium" },
-  { value: "hard",   label: "Hard" },
-];
+import { ROUTES } from "@utils/constants";
+import type { Question, QuestionStatus } from "@/types/question";
+import type { SubmitAttemptResponse } from "@/types/quizAttempt";
 
 // ── Status chip ────────────────────────────────────────────────────────────────
 function QStatusChip({ status }: { status: QuestionStatus }) {
@@ -58,6 +62,7 @@ function QStatusChip({ status }: { status: QuestionStatus }) {
     published:        "success",
     rejected:         "error",
     archived:         "default",
+    practice:         "info",
   };
   const labels: Record<QuestionStatus, string> = {
     generated:        "Generated",
@@ -67,6 +72,7 @@ function QStatusChip({ status }: { status: QuestionStatus }) {
     published:        "Published",
     rejected:         "Rejected",
     archived:         "Archived",
+    practice:         "AI Practice",
   };
   return (
     <Chip
@@ -84,12 +90,19 @@ function DiffChip({ difficulty }: { difficulty: string }) {
     easy: "success", medium: "warning", hard: "error",
   };
   return (
-    <Chip label={difficulty} color={map[difficulty] ?? "default"} size="small"
-      variant="outlined" sx={{ textTransform: "capitalize", fontSize: 11 }} />
+    <Chip
+      label={difficulty}
+      color={map[difficulty] ?? "default"}
+      size="small"
+      variant="outlined"
+      sx={{ textTransform: "capitalize", fontSize: 11 }}
+    />
   );
 }
 
-// ── My question card (all statuses) ────────────────────────────────────────────
+// ── My question card (teacher-review lifecycle questions only) ─────────────────
+// Shows pending/approved/rejected status but NO interactive quiz UI.
+// The student submitted these for teacher review — they can see the status.
 function MyQuestionCard({ q }: { q: Question }) {
   const [showAnswer, setShowAnswer] = useState(false);
 
@@ -101,7 +114,7 @@ function MyQuestionCard({ q }: { q: Question }) {
         <Box sx={{ mt: 1 }}>
           {pairs.map((p, i) => (
             <Typography key={i} variant="body2" sx={{ ml: 1 }}>
-              {i + 1}. {p.left} &nbsp;⇔&nbsp; {p.right}
+              {i + 1}. {p.left} ⇔ {p.right}
             </Typography>
           ))}
         </Box>
@@ -123,12 +136,12 @@ function MyQuestionCard({ q }: { q: Question }) {
     q.status === "approved"  ? "info.main"    :
     q.status === "published"  ? "success.main" :
     q.status === "rejected"   ? "error.main"   :
-    "warning.main"; // pending_approval / generated / validated
+    "warning.main";
 
   return (
     <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 1.5, borderColor }}>
       <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1 }}>
-        <Chip label={q.question_type.replace("_", " ")} size="small" variant="outlined" sx={{ fontSize: 11 }} />
+        <Chip label={q.question_type.replace(/_/g, " ")} size="small" variant="outlined" sx={{ fontSize: 11 }} />
         <DiffChip difficulty={q.difficulty} />
         <QStatusChip status={q.status} />
       </Stack>
@@ -143,8 +156,9 @@ function MyQuestionCard({ q }: { q: Question }) {
         </Alert>
       )}
 
+      {/* Answer preview is only relevant for the student's reference */}
       <Button size="small" sx={{ mt: 1 }} onClick={() => setShowAnswer((v) => !v)}>
-        {showAnswer ? "Hide Answer" : "Show Answer"}
+        {showAnswer ? "Hide Answer" : "Preview Answer"}
       </Button>
       <Collapse in={showAnswer}>
         <Divider sx={{ my: 1 }} />
@@ -161,113 +175,187 @@ function MyQuestionCard({ q }: { q: Question }) {
   );
 }
 
-// ── Published question card ────────────────────────────────────────────────────
-function PublishedQuestionCard({ q }: { q: Question }) {
-  const [showAnswer, setShowAnswer] = useState(false);
+// ── Score summary bar ─────────────────────────────────────────────────────────
+function TopicScoreSummary({
+  published,
+  attemptsMap,
+}: {
+  published: Question[];
+  attemptsMap: Map<number, SubmitAttemptResponse>;
+}) {
+  if (!published.length) return null;
 
-  const renderOptions = () => {
-    if (!q.options) return null;
-    if (q.question_type === "matching") {
-      const pairs = q.options as { left: string; right: string }[];
-      return (
-        <Box sx={{ mt: 1 }}>
-          {pairs.map((p, i) => (
-            <Typography key={i} variant="body2" sx={{ ml: 1 }}>
-              {i + 1}. {p.left} &nbsp;⇔&nbsp; {p.right}
-            </Typography>
-          ))}
-        </Box>
-      );
-    }
-    const opts = q.options as string[];
-    return (
-      <Box sx={{ mt: 1 }}>
-        {opts.map((o, i) => (
-          <Typography key={i} variant="body2" sx={{ ml: 1 }}>
-            {String.fromCharCode(65 + i)}. {o}
-          </Typography>
-        ))}
-      </Box>
+  const attempted  = published.filter((q) => attemptsMap.has(q.id)).length;
+  const correct    = published.filter((q) => attemptsMap.get(q.id)?.isCorrect === true).length;
+  const autoScored = published.filter((q) => {
+    const r = attemptsMap.get(q.id);
+    return r !== undefined && r.isCorrect !== null;
+  }).length;
+
+  if (!attempted) return null;
+
+  const pct = autoScored > 0 ? Math.round((correct / autoScored) * 100) : null;
+
+  return (
+    <Paper variant="outlined" sx={{ p: 1.5, mb: 2, borderRadius: 2 }}>
+      <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+        <Typography variant="body2" fontWeight={600}>Progress:</Typography>
+        <Chip label={`${attempted} / ${published.length} attempted`} size="small" />
+        {pct !== null && (
+          <Chip
+            label={`${correct} / ${autoScored} correct (${pct}%)`}
+            size="small"
+            color={pct >= 80 ? "success" : pct >= 50 ? "warning" : "error"}
+          />
+        )}
+      </Stack>
+      {pct !== null && (
+        <LinearProgress
+          variant="determinate"
+          value={pct}
+          color={pct >= 80 ? "success" : pct >= 50 ? "warning" : "error"}
+          sx={{ mt: 1, borderRadius: 1, height: 6 }}
+        />
+      )}
+    </Paper>
+  );
+}
+
+// ── Published questions section ───────────────────────────────────────────────
+// Uses the reusable QuizQuestionCard with radio buttons for MCQ.
+function PublishedQuestionsSection({
+  topicId,
+  topicIdNum,
+}: {
+  topicId: string;
+  topicIdNum: number;
+}) {
+  const publishedQuery  = usePublishedQuestions(topicIdNum);
+  const myAttemptsQuery = useMyAttempts(topicIdNum);
+  const submitMutation  = useSubmitAttempt();
+
+  // Session results (not yet persisted to server cache)
+  const [sessionResults, setSessionResults] = useState<Map<number, SubmitAttemptResponse>>(
+    new Map()
+  );
+
+  // Build prior-attempt map from the DB-fetched attempts
+  const priorAttemptMap = new Map(
+    (myAttemptsQuery.data?.attempts ?? []).map((a) => [
+      a.question_id,
+      {
+        attemptId:     a.id,
+        questionId:    a.question_id,
+        studentAnswer: a.student_answer,
+        isCorrect:     a.is_correct,
+        score:         a.score !== null ? Number(a.score) : null,
+        attemptCount:  a.attempt_count,
+        correctAnswer: a.correct_answer,
+        explanation:   a.explanation,
+      } as SubmitAttemptResponse,
+    ])
+  );
+
+  // Merge session results on top of prior results
+  const effectiveResults = new Map([...priorAttemptMap, ...sessionResults]);
+
+  const publishedQuestions = publishedQuery.data?.questions ?? [];
+
+  const handleSubmit = (questionId: number, answer: string) => {
+    submitMutation.mutate(
+      { questionId, studentAnswer: answer },
+      {
+        onSuccess: (result) => {
+          setSessionResults((prev) => new Map(prev).set(questionId, result));
+        },
+      }
     );
   };
 
+  const handleRetry = (questionId: number) => {
+    setSessionResults((prev) => {
+      const next = new Map(prev);
+      next.delete(questionId);
+      return next;
+    });
+  };
+
   return (
-    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 1.5 }}>
-      <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1 }}>
-        <Chip label={q.question_type.replace("_", " ")} size="small" variant="outlined" sx={{ fontSize: 11 }} />
-        <DiffChip difficulty={q.difficulty} />
-      </Stack>
-      <Typography variant="body1" fontWeight={500} sx={{ mb: 0.5 }}>
-        {q.question_text}
-      </Typography>
-      {renderOptions()}
-
-      <Button
-        size="small"
-        sx={{ mt: 1 }}
-        onClick={() => setShowAnswer((v) => !v)}
-      >
-        {showAnswer ? "Hide Answer" : "Show Answer"}
-      </Button>
-
-      <Collapse in={showAnswer}>
-        <Divider sx={{ my: 1 }} />
-        <Typography variant="body2" color="success.main" fontWeight={600}>
-          Answer: {q.correct_answer}
-        </Typography>
-        {q.explanation && (
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            {q.explanation}
+    <Accordion
+      defaultExpanded
+      elevation={0}
+      sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2 }}
+    >
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <QuizOutlinedIcon fontSize="small" />
+          <Typography variant="subtitle2" fontWeight={600}>
+            Published Questions for Topic #{topicId}
+          </Typography>
+          {publishedQuery.isLoading && <CircularProgress size={14} />}
+          {!publishedQuery.isLoading && (
+            <Chip
+              label={publishedQuestions.length}
+              size="small"
+              color={publishedQuestions.length > 0 ? "success" : "default"}
+              sx={{ height: 18, fontSize: 11 }}
+            />
+          )}
+        </Stack>
+      </AccordionSummary>
+      <AccordionDetails>
+        {publishedQuery.isLoading && (
+          <Stack alignItems="center" py={2}>
+            <CircularProgress size={24} />
+          </Stack>
+        )}
+        {!publishedQuery.isLoading && publishedQuestions.length === 0 && (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: "center" }}>
+            No published questions for this topic yet.
           </Typography>
         )}
-      </Collapse>
-    </Paper>
+        {publishedQuestions.length > 0 && (
+          <TopicScoreSummary
+            published={publishedQuestions}
+            attemptsMap={effectiveResults}
+          />
+        )}
+        {publishedQuestions.map((q) => (
+          <QuizQuestionCard
+            key={q.id}
+            q={q}
+            priorResult={priorAttemptMap.get(q.id) ?? null}
+            sessionResult={sessionResults.get(q.id) ?? null}
+            allowRetry={true}
+            isPending={submitMutation.isPending}
+            onSubmit={(answer) => handleSubmit(q.id, answer)}
+            onRetry={() => handleRetry(q.id)}
+          />
+        ))}
+      </AccordionDetails>
+    </Accordion>
   );
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function StudentQuestionBankPage() {
   const [topicId, setTopicId] = useState<string>("");
-  const [questionType, setQuestionType] = useState<QuestionType>("mcq");
-  const [difficulty, setDifficulty] = useState<QuestionDifficulty>("medium");
-  const [count, setCount] = useState<number>(5);
+  const navigate = useNavigate();
 
-  const generateMutation = useGenerateQuestions();
-
-  // ── Database-backed queries ────────────────────────────────────────────────
-  // useMyQuestions polls the backend every 15 s so status changes made by the
-  // teacher (pending → approved → published) appear in the student UI
-  // automatically without a page refresh.
   const topicIdNum = topicId ? Number(topicId) : undefined;
+
+  // Only fetch student-generated questions that are in the teacher review lifecycle
+  // (status IN: pending_approval, approved, rejected — NOT practice or published)
   const myQuestionsQuery = useMyQuestions(topicIdNum);
-  const publishedQuery   = usePublishedQuestions(topicIdNum ?? null);
 
-  const handleGenerate = () => {
-    if (!topicId) return;
-    generateMutation.mutate({
-      topicId: Number(topicId),
-      questionType,
-      difficulty,
-      count,
-    });
-  };
-
-  // Source of truth = database via useMyQuestions.
-  // No longer read from mutation.data — that was the root cause of
-  // questions disappearing on browser refresh.
-  const myQuestions      = myQuestionsQuery.data?.questions ?? [];
-  const publishedQuestions = publishedQuery.data?.questions ?? [];
-
-  // Separate pending/approved questions from published so we don't show them
-  // twice (they will also appear in the Published section once published).
-  const pendingAndApproved = myQuestions.filter(
-    (q) => !["published", "archived"].includes(q.status)
+  const pendingAndApproved = (myQuestionsQuery.data?.questions ?? []).filter(
+    (q) => !["published", "archived", "practice"].includes(q.status)
   );
 
   return (
     <DashboardLayout
       title="Question Bank"
-      description="Generate practice questions from your syllabus content."
+      description="View published questions from your teacher and attempt them for practice."
       breadcrumbs={[
         { label: "Dashboard", href: "/student/dashboard" },
         { label: "Question Bank" },
@@ -275,101 +363,73 @@ export default function StudentQuestionBankPage() {
     >
       <NotebookPage>
 
-        {/* ── Generation form ──────────────────────────────────────────────── */}
-        <NotebookCard title="Generate Questions" sx={{ mb: 3 }}>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-              <TextField
-                label="Topic ID"
-                size="small"
-                type="number"
-                value={topicId}
-                onChange={(e) => setTopicId(e.target.value)}
-                helperText="Enter the topic ID from your Knowledge Base"
-                sx={{ width: { xs: "100%", sm: 160 } }}
-              />
-
-              <FormControl size="small" sx={{ minWidth: 180 }}>
-                <InputLabel>Question Type</InputLabel>
-                <Select
-                  label="Question Type"
-                  value={questionType}
-                  onChange={(e) => setQuestionType(e.target.value as QuestionType)}
-                >
-                  {QUESTION_TYPES.map((t) => (
-                    <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <FormControl size="small" sx={{ minWidth: 140 }}>
-                <InputLabel>Difficulty</InputLabel>
-                <Select
-                  label="Difficulty"
-                  value={difficulty}
-                  onChange={(e) => setDifficulty(e.target.value as QuestionDifficulty)}
-                >
-                  {DIFFICULTIES.map((d) => (
-                    <MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <FormControl size="small" sx={{ minWidth: 100 }}>
-                <InputLabel>Count</InputLabel>
-                <Select
-                  label="Count"
-                  value={count}
-                  onChange={(e) => setCount(Number(e.target.value))}
-                >
-                  {[1, 3, 5, 10, 15, 20].map((n) => (
-                    <MenuItem key={n} value={n}>{n}</MenuItem>
-                  ))}
-                </Select>
-                <FormHelperText>Max 20</FormHelperText>
-              </FormControl>
-            </Stack>
-
-            <Box>
-              <Button
-                variant="contained"
-                startIcon={
-                  generateMutation.isPending
-                    ? <CircularProgress size={16} color="inherit" />
-                    : <AutoAwesomeIcon />
-                }
-                onClick={handleGenerate}
-                disabled={!topicId || generateMutation.isPending}
-              >
-                {generateMutation.isPending ? "Generating…" : "Generate Questions"}
-              </Button>
+        {/* ── Banner: redirect to AI Practice ─────────────────────────────── */}
+        <NotebookCard sx={{ mb: 3, bgcolor: "primary.50", borderColor: "primary.200" }}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>
+            <Box sx={{ flex: 1 }}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                <ScienceOutlinedIcon color="primary" fontSize="small" />
+                <Typography variant="subtitle2" fontWeight={700} color="primary">
+                  Want to practice with AI?
+                </Typography>
+              </Stack>
+              <Typography variant="body2" color="text.secondary">
+                Use <strong>Practice with AI</strong> to generate private AI practice questions
+                from your knowledge base. Your practice sessions are private to you and do not go
+                to your teacher.
+              </Typography>
             </Box>
-
-            {generateMutation.isError && (
-              <Alert severity="error">
-                {(generateMutation.error as Error)?.message ?? "Generation failed."}
-              </Alert>
-            )}
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AutoAwesomeIcon />}
+              onClick={() => navigate(ROUTES.STUDENT.PRACTICE)}
+              sx={{ whiteSpace: "nowrap" }}
+            >
+              Practice with AI
+            </Button>
           </Stack>
         </NotebookCard>
 
-        {/* ── My generated questions (persisted, from DB) ────────────────────
-            Shows all statuses: pending_approval, approved, rejected.
-            Published questions appear here until they are in the published
-            section — they are excluded from this list to avoid duplication.
-        ──────────────────────────────────────────────────────────────────── */}
+        {/* ── Topic filter ─────────────────────────────────────────────────── */}
+        <NotebookCard title="Browse by Topic" sx={{ mb: 3 }}>
+          <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 1 }}>
+            <Box
+              component="input"
+              type="number"
+              placeholder="Enter Topic ID"
+              value={topicId}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTopicId(e.target.value)}
+              min={1}
+              style={{
+                padding: "8px 12px",
+                border: "1px solid #e5e7eb",
+                borderRadius: 6,
+                fontSize: 14,
+                width: 160,
+              }}
+            />
+            <Typography variant="caption" color="text.secondary">
+              Enter the topic ID to load published questions and your question history.
+            </Typography>
+          </Stack>
+        </NotebookCard>
+
+        {/* ── My generated questions (teacher review lifecycle) ────────────── */}
         {topicId && (
           <NotebookCard
             title={
               myQuestionsQuery.isLoading
                 ? "My Questions (loading…)"
-                : `My Questions (${pendingAndApproved.length})`
+                : `My Questions in Teacher Review (${pendingAndApproved.length})`
             }
-            subtitle="Questions you generated — status updates automatically as your teacher reviews them."
+            subtitle="Questions you submitted for teacher review. Status updates as your teacher reviews them."
             sx={{ mb: 3 }}
           >
             {myQuestionsQuery.isLoading && (
-              <Stack alignItems="center" py={2}><CircularProgress size={24} /></Stack>
+              <Stack alignItems="center" py={2}>
+                <CircularProgress size={24} />
+              </Stack>
             )}
             {myQuestionsQuery.isError && (
               <Alert severity="error" sx={{ mb: 1 }}>
@@ -378,57 +438,22 @@ export default function StudentQuestionBankPage() {
             )}
             {!myQuestionsQuery.isLoading && pendingAndApproved.length === 0 && (
               <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: "center" }}>
-                No questions generated for this topic yet. Use the form above to generate some!
+                No questions in the teacher review queue for this topic.
+                {" "}Visit <strong>Practice with AI</strong> to generate private practice questions.
               </Typography>
             )}
             {pendingAndApproved.map((q) => (
               <MyQuestionCard key={q.id} q={q} />
             ))}
-            {myQuestionsQuery.isFetching && !myQuestionsQuery.isLoading && (
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
-                <CircularProgress size={12} />
-                <Typography variant="caption" color="text.secondary">
-                  Checking for status updates…
-                </Typography>
-              </Stack>
-            )}
           </NotebookCard>
         )}
 
-        {/* ── Published questions for the topic ─────────────────────────────── */}
-        {topicId && (
-          <Accordion defaultExpanded elevation={0} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <QuizOutlinedIcon fontSize="small" />
-                <Typography variant="subtitle2" fontWeight={600}>
-                  Published Questions for Topic #{topicId}
-                </Typography>
-                {publishedQuery.isLoading && <CircularProgress size={14} />}
-                {!publishedQuery.isLoading && (
-                  <Chip
-                    label={publishedQuestions.length}
-                    size="small"
-                    color={publishedQuestions.length > 0 ? "success" : "default"}
-                    sx={{ height: 18, fontSize: 11 }}
-                  />
-                )}
-              </Stack>
-            </AccordionSummary>
-            <AccordionDetails>
-              {publishedQuery.isLoading && (
-                <Stack alignItems="center" py={2}><CircularProgress size={24} /></Stack>
-              )}
-              {!publishedQuery.isLoading && publishedQuestions.length === 0 && (
-                <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: "center" }}>
-                  No published questions for this topic yet.
-                </Typography>
-              )}
-              {publishedQuestions.map((q) => (
-                <PublishedQuestionCard key={q.id} q={q} />
-              ))}
-            </AccordionDetails>
-          </Accordion>
+        {/* ── Published questions with interactive quiz UI ──────────────────── */}
+        {topicIdNum && (
+          <PublishedQuestionsSection
+            topicId={topicId}
+            topicIdNum={topicIdNum}
+          />
         )}
       </NotebookPage>
     </DashboardLayout>

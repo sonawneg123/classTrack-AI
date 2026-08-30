@@ -10,12 +10,15 @@ const app    = require('./app');
 const config = require('./src/config');
 const logger = require('./src/utils/logger.util');
 const { testConnection } = require('./src/database/connection');
+const { recoverStuckDocuments } = require('./src/services/knowledge/ingestion.service');
 
 const PORT = config.server.port;
 
 const server = app.listen(PORT, async () => {
   logger.info('🚀 ClassTrack AI API started', { port: PORT, env: config.env });
   await testConnection();
+  // Recover any documents stuck in 'processing' from a prior server crash/restart
+  await recoverStuckDocuments();
 });
 
 // Graceful shutdown — finish in-flight requests before exiting

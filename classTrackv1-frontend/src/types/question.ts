@@ -19,7 +19,8 @@ export type QuestionStatus =
   | 'approved'
   | 'published'
   | 'rejected'
-  | 'archived';
+  | 'archived'
+  | 'practice';
 
 export type MatchingPair = { left: string; right: string };
 export type QuestionOptions = string[] | MatchingPair[] | null;
@@ -69,4 +70,9 @@ export interface GenerateQuestionsResponse {
   skippedDuplicates: number;
   skippedInvalid: number;
   questions: Question[];
+  /** Set to true when no relevant context was found for the topic. */
+  insufficientContext?: boolean;
+  /** 'INSUFFICIENT_CONTEXT' when learning material is insufficient. */
+  code?: string;
+  message?: string;
 }

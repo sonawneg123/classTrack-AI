@@ -75,3 +75,38 @@ describe('CurriculumRepository.softDeleteOwned', () => {
     expect(result).toBe(false);
   });
 });
+
+describe('CurriculumRepository.hardDeleteOwned', () => {
+  it('issues a real DELETE and returns true when row removed', async () => {
+    pool.query.mockResolvedValue([[{ id: 5 }]]);
+    const result = await curriculumRepo.hardDeleteOwned(5, 2);
+    expect(result).toBe(true);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/DELETE FROM curricula/);
+    expect(sql).toMatch(/teacher_id = \$2/);
+    expect(params).toEqual([5, 2]);
+  });
+
+  it('returns false when row not found (wrong teacher or already gone)', async () => {
+    pool.query.mockResolvedValue([[]]);
+    const result = await curriculumRepo.hardDeleteOwned(5, 99);
+    expect(result).toBe(false);
+  });
+
+  it('does NOT contain SET deleted_at (must be a true DELETE)', async () => {
+    pool.query.mockResolvedValue([[{ id: 5 }]]);
+    await curriculumRepo.hardDeleteOwned(5, 2);
+    const [sql] = pool.query.mock.calls[0];
+    expect(sql).not.toMatch(/SET/i);
+    expect(sql).not.toMatch(/deleted_at/i);
+  });
+
+  it('uses provided pg client instead of pool when given', async () => {
+    const mockClient = { query: jest.fn().mockResolvedValue([[{ id: 5 }]]) };
+    const result = await curriculumRepo.hardDeleteOwned(5, 2, mockClient);
+    expect(result).toBe(true);
+    expect(mockClient.query).toHaveBeenCalled();
+    // pool.query must NOT have been called
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+});

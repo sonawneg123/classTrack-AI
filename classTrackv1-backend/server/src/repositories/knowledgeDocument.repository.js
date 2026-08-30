@@ -100,6 +100,103 @@ class KnowledgeDocumentRepository extends BaseRepository {
     return rows.length > 0;
   }
 
+  /**
+   * Hard-delete a single document and return its file_path so the caller
+   * can clean up the physical file after the DB record is gone.
+   *
+   * @param {number} id
+   * @param {number} teacherId
+   * @param {object} [client]  Optional pg transaction client
+   * @returns {Promise<string|null>} file_path of deleted document, or null
+   */
+  async hardDeleteOwned(id, teacherId, client) {
+    const executor = client || this.pool;
+    const [rows] = await executor.query(
+      `DELETE FROM knowledge_documents
+       WHERE id = $1 AND teacher_id = $2
+       RETURNING file_path`,
+      [id, teacherId]
+    );
+    return rows[0]?.file_path || null;
+  }
+
+  /**
+   * Collect all file_path values for documents belonging to a curriculum
+   * (via the topics → chapters → subjects → curriculum chain).
+   * Called BEFORE hard-deleting the curriculum so physical files can be removed.
+   *
+   * @param {number} curriculumId
+   * @param {number} teacherId    Ownership guard — only the curriculum owner's files
+   * @param {object} [client]     Optional pg transaction client
+   * @returns {Promise<string[]>} Array of absolute file paths
+   */
+  async listFilePathsByCurriculum(curriculumId, teacherId, client) {
+    const executor = client || this.pool;
+    const [rows] = await executor.query(
+      `SELECT kd.file_path
+       FROM knowledge_documents kd
+       JOIN topics    t   ON t.id  = kd.topic_id
+       JOIN chapters  ch  ON ch.id = t.chapter_id
+       JOIN subjects  s   ON s.id  = ch.subject_id
+       WHERE s.curriculum_id = $1
+         AND kd.teacher_id   = $2
+         AND kd.file_path IS NOT NULL`,
+      [curriculumId, teacherId]
+    );
+    return rows.map((r) => r.file_path);
+  }
+
+  /**
+   * Collect all file_path values for documents belonging to a subject.
+   */
+  async listFilePathsBySubject(subjectId, teacherId, client) {
+    const executor = client || this.pool;
+    const [rows] = await executor.query(
+      `SELECT kd.file_path
+       FROM knowledge_documents kd
+       JOIN topics    t   ON t.id  = kd.topic_id
+       JOIN chapters  ch  ON ch.id = t.chapter_id
+       WHERE ch.subject_id = $1
+         AND kd.teacher_id = $2
+         AND kd.file_path IS NOT NULL`,
+      [subjectId, teacherId]
+    );
+    return rows.map((r) => r.file_path);
+  }
+
+  /**
+   * Collect all file_path values for documents belonging to a chapter.
+   */
+  async listFilePathsByChapter(chapterId, teacherId, client) {
+    const executor = client || this.pool;
+    const [rows] = await executor.query(
+      `SELECT kd.file_path
+       FROM knowledge_documents kd
+       JOIN topics t ON t.id = kd.topic_id
+       WHERE t.chapter_id  = $1
+         AND kd.teacher_id = $2
+         AND kd.file_path IS NOT NULL`,
+      [chapterId, teacherId]
+    );
+    return rows.map((r) => r.file_path);
+  }
+
+  /**
+   * Collect all file_path values for documents belonging to a topic.
+   */
+  async listFilePathsByTopic(topicId, teacherId, client) {
+    const executor = client || this.pool;
+    const [rows] = await executor.query(
+      `SELECT kd.file_path
+       FROM knowledge_documents kd
+       WHERE kd.topic_id   = $1
+         AND kd.teacher_id = $2
+         AND kd.file_path IS NOT NULL`,
+      [topicId, teacherId]
+    );
+    return rows.map((r) => r.file_path);
+  }
+
   /** Fetch documents stuck in 'processing' for longer than a threshold (crash recovery). */
   async findStuckProcessing(thresholdMinutes = 30) {
     const [rows] = await this.pool.query(

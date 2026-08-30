@@ -36,10 +36,10 @@ const getMySubmissionHistory = asyncHandler(async (req, res) => {
 });
 
 const downloadMyReport = asyncHandler(async (req, res) => {
-  const [studentRows]   = await pool.query('SELECT * FROM students WHERE id = ?', [req.user.id]);
-  const [classroomRows] = await pool.query('SELECT * FROM classrooms WHERE id = ?', [req.user.classroomId]);
-  const [tasks]         = await pool.query('SELECT * FROM tasks WHERE classroom_id = ? ORDER BY task_date', [req.user.classroomId]);
-  const [submissions]   = await pool.query('SELECT * FROM submissions WHERE student_id = ?', [req.user.id]);
+  const [studentRows]   = await pool.query('SELECT * FROM students WHERE id = $1', [req.user.id]);
+  const [classroomRows] = await pool.query('SELECT * FROM classrooms WHERE id = $1', [req.user.classroomId]);
+  const [tasks]         = await pool.query('SELECT * FROM tasks WHERE classroom_id = $1 ORDER BY task_date', [req.user.classroomId]);
+  const [submissions]   = await pool.query('SELECT * FROM submissions WHERE student_id = $1', [req.user.id]);
 
   const byTask = {};
   submissions.forEach((s) => (byTask[s.task_id] = s));

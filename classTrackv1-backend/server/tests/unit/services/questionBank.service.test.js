@@ -9,7 +9,10 @@ jest.mock('../../../src/repositories/questionBank.repository', () => ({
   findPublishedById:        jest.fn(),
   listByTopic:              jest.fn(),
   listPendingApproval:      jest.fn(),
+  listReviewQueue:          jest.fn(),
+  listPublishedForTeacher:  jest.fn(),
   listPublishedForStudent:  jest.fn(),
+  listByStudent:            jest.fn(),
   updateStatus:             jest.fn(),
   existsDuplicate:          jest.fn(),
   insert:                   jest.fn(),
@@ -77,12 +80,29 @@ describe('questionBankService.listByTopic', () => {
 });
 
 // ── listPendingApproval ────────────────────────────────────────────────────────
-describe('questionBankService.listPendingApproval', () => {
-  it('returns pending questions for the teacher', async () => {
-    questionRepo.listPendingApproval.mockResolvedValue([MOCK_QUESTION_PENDING]);
+describe('questionBankService.listPendingApproval (deprecated)', () => {
+  it('returns pending questions for the teacher via listReviewQueue', async () => {
+    // listPendingApproval now delegates to listReviewQueue with status filter
+    questionRepo.listReviewQueue.mockResolvedValue([MOCK_QUESTION_PENDING]);
     const result = await questionBankService.listPendingApproval(TEACHER_ID);
     expect(result).toHaveLength(1);
-    expect(questionRepo.listPendingApproval).toHaveBeenCalledWith(TEACHER_ID);
+    expect(questionRepo.listReviewQueue).toHaveBeenCalledWith(TEACHER_ID, { status: 'pending_approval' });
+  });
+});
+
+describe('questionBankService.listReviewQueue', () => {
+  it('returns pending_approval + approved questions', async () => {
+    questionRepo.listReviewQueue.mockResolvedValue([MOCK_QUESTION_PENDING, MOCK_QUESTION_APPROVED]);
+    const result = await questionBankService.listReviewQueue(TEACHER_ID);
+    expect(result).toHaveLength(2);
+    expect(questionRepo.listReviewQueue).toHaveBeenCalledWith(TEACHER_ID, {});
+  });
+
+  it('can filter to pending_approval only', async () => {
+    questionRepo.listReviewQueue.mockResolvedValue([MOCK_QUESTION_PENDING]);
+    const result = await questionBankService.listReviewQueue(TEACHER_ID, { status: 'pending_approval' });
+    expect(result).toHaveLength(1);
+    expect(questionRepo.listReviewQueue).toHaveBeenCalledWith(TEACHER_ID, { status: 'pending_approval' });
   });
 });
 
@@ -140,24 +160,58 @@ describe('questionBankService.rejectQuestion', () => {
 
 // ── publishQuestion ────────────────────────────────────────────────────────────
 describe('questionBankService.publishQuestion', () => {
-  it('throws 400 when question is not approved', async () => {
-    questionRepo.findByIdForTeacher.mockResolvedValue(MOCK_QUESTION_PENDING);
-    await expect(questionBankService.publishQuestion(QUESTION_ID, TEACHER_ID))
-      .rejects.toMatchObject({ statusCode: 400 });
-  });
-
-  it('publishes an approved question', async () => {
+  it('publishes an approved question (approved → published)', async () => {
     questionRepo.findByIdForTeacher.mockResolvedValue(MOCK_QUESTION_APPROVED);
     questionRepo.updateStatus.mockResolvedValue({ id: QUESTION_ID, status: 'published' });
     const result = await questionBankService.publishQuestion(QUESTION_ID, TEACHER_ID);
     expect(result.status).toBe('published');
+    // No approvedBy set when already approved
+    expect(questionRepo.updateStatus).toHaveBeenCalledWith(QUESTION_ID, TEACHER_ID, 'published', {});
+  });
+
+  it('publishes a pending_approval question directly (pending_approval → published)', async () => {
+    questionRepo.findByIdForTeacher.mockResolvedValue(MOCK_QUESTION_PENDING);
+    questionRepo.updateStatus.mockResolvedValue({ id: QUESTION_ID, status: 'published' });
+    const result = await questionBankService.publishQuestion(QUESTION_ID, TEACHER_ID);
+    expect(result.status).toBe('published');
+    // Sets approvedBy when coming from pending_approval
+    expect(questionRepo.updateStatus).toHaveBeenCalledWith(
+      QUESTION_ID, TEACHER_ID, 'published',
+      expect.objectContaining({ approvedBy: TEACHER_ID, approvedAt: expect.any(String) })
+    );
+  });
+
+  it('throws 400 when question is generated (not publishable)', async () => {
+    questionRepo.findByIdForTeacher.mockResolvedValue({ ...MOCK_QUESTION_PENDING, status: 'generated' });
+    await expect(questionBankService.publishQuestion(QUESTION_ID, TEACHER_ID))
+      .rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('throws 400 when question is practice (not publishable)', async () => {
+    questionRepo.findByIdForTeacher.mockResolvedValue({ ...MOCK_QUESTION_PENDING, status: 'practice' });
+    await expect(questionBankService.publishQuestion(QUESTION_ID, TEACHER_ID))
+      .rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('throws 400 when question is rejected (not publishable)', async () => {
+    questionRepo.findByIdForTeacher.mockResolvedValue({ ...MOCK_QUESTION_PENDING, status: 'rejected' });
+    await expect(questionBankService.publishQuestion(QUESTION_ID, TEACHER_ID))
+      .rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('throws 400 when question is archived (not publishable)', async () => {
+    questionRepo.findByIdForTeacher.mockResolvedValue({ ...MOCK_QUESTION_PENDING, status: 'archived' });
+    await expect(questionBankService.publishQuestion(QUESTION_ID, TEACHER_ID))
+      .rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('throws 400 when question is already published', async () => {
+    questionRepo.findByIdForTeacher.mockResolvedValue(MOCK_QUESTION_PUBLISHED);
+    await expect(questionBankService.publishQuestion(QUESTION_ID, TEACHER_ID))
+      .rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('does not allow a student to approve', async () => {
-    // Students call a different service path — they don't have the QUESTION_APPROVE
-    // permission so the route guard blocks them at the HTTP layer. At the service
-    // layer we verify that listPublishedForStudent is the only student path, not approve.
-    // The approveQuestion method requires a teacherId and does findByIdForTeacher.
     questionRepo.findByIdForTeacher.mockResolvedValue(null); // student ID != teacher
     await expect(questionBankService.approveQuestion(QUESTION_ID, STUDENT_ID))
       .rejects.toMatchObject({ statusCode: 404 });
@@ -226,13 +280,13 @@ describe('questionBankService — student access', () => {
   });
 });
 
-// ── Status lifecycle: pending → approved → published ──────────────────────────
+// ── Status lifecycle: pending → approved → published (or pending → published directly) ──
 describe('question status lifecycle', () => {
-  it('can only publish approved questions', async () => {
-    // pending_approval → cannot publish
+  it('pending_approval can be published directly (new behavior)', async () => {
     questionRepo.findByIdForTeacher.mockResolvedValue(MOCK_QUESTION_PENDING);
-    await expect(questionBankService.publishQuestion(QUESTION_ID, TEACHER_ID))
-      .rejects.toMatchObject({ statusCode: 400 });
+    questionRepo.updateStatus.mockResolvedValue({ id: QUESTION_ID, status: 'published' });
+    const result = await questionBankService.publishQuestion(QUESTION_ID, TEACHER_ID);
+    expect(result.status).toBe('published');
   });
 
   it('approved question can be published', async () => {
@@ -242,9 +296,11 @@ describe('question status lifecycle', () => {
     expect(result.status).toBe('published');
   });
 
-  it('pending questions cannot be published directly', async () => {
-    questionRepo.findByIdForTeacher.mockResolvedValue({ ...MOCK_QUESTION_PENDING, status: 'pending_approval' });
-    await expect(questionBankService.publishQuestion(QUESTION_ID, TEACHER_ID))
-      .rejects.toMatchObject({ statusCode: 400 });
+  it('generated, practice, rejected, archived questions cannot be published', async () => {
+    for (const status of ['generated', 'practice', 'rejected', 'archived']) {
+      questionRepo.findByIdForTeacher.mockResolvedValue({ ...MOCK_QUESTION_PENDING, status });
+      await expect(questionBankService.publishQuestion(QUESTION_ID, TEACHER_ID))
+        .rejects.toMatchObject({ statusCode: 400 });
+    }
   });
 });

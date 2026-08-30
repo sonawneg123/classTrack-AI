@@ -44,6 +44,26 @@ class ChapterRepository extends BaseRepository {
     );
     return rows.length > 0;
   }
+
+  /**
+   * Hard-delete a chapter; cascades to topics → knowledge_documents
+   * → knowledge_chunks via FK ON DELETE CASCADE.
+   *
+   * @param {number} id
+   * @param {number} teacherId
+   * @param {object} [client]  Optional pg transaction client
+   * @returns {Promise<boolean>}
+   */
+  async hardDeleteOwned(id, teacherId, client) {
+    const executor = client || this.pool;
+    const [rows] = await executor.query(
+      `DELETE FROM chapters
+       WHERE id = $1 AND teacher_id = $2
+       RETURNING id`,
+      [id, teacherId]
+    );
+    return rows.length > 0;
+  }
 }
 
 module.exports = new ChapterRepository();

@@ -103,8 +103,8 @@ function chunkText(text, sourceMeta = {}) {
 
     if (i >= sentences.length) break;  // we consumed everything
 
-    // Slide back by overlap: find the sentence offset that gives ~overlapChars
-    // of overlap from the END of the current chunk.
+    // Slide back by overlap: find the sentence count that gives ~overlapChars
+    // of overlap re-used from the END of the current chunk.
     let overlapSentences = 0;
     let overlapBuffer = '';
     for (let j = i - 1; j >= bufferStart; j--) {
@@ -113,16 +113,11 @@ function chunkText(text, sourceMeta = {}) {
       overlapBuffer = candidate;
       overlapSentences++;
     }
-    bufferStart = i - overlapSentences;
-    if (bufferStart <= (i - sentences.length + bufferStart)) {
-      bufferStart = i;  // prevent infinite loop if overlap pushes back too far
-    }
-    // Safety: always advance at least one sentence
-    if (bufferStart <= (i - (i - bufferStart))) bufferStart = i;
-    // Simpler safety: if bufferStart didn't advance from where we started
-    // this iteration, force it forward.
-    bufferStart = Math.max(bufferStart, i - Math.max(overlapSentences, 0));
-    if (bufferStart >= i) bufferStart = i;  // never go backward past consumed sentences
+    // Compute the new start, but guarantee at least one net-new sentence is
+    // consumed each iteration — otherwise a single sentence longer than
+    // overlapChars would cause an infinite loop.
+    const nextStart = i - overlapSentences;
+    bufferStart = nextStart > bufferStart ? nextStart : i;
   }
 
   return chunks;

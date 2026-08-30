@@ -9,66 +9,199 @@
  *   — fast, small, high quality for semantic similarity tasks.
  *   — fully open-source Apache-2.0 licence.
  *
- * APPROXIMATION NOTE:
- *   Token count is approximated as Math.ceil(charCount / 4) — a standard
- *   rule-of-thumb for English text.  This is used only for metadata storage
- *   and chunking heuristics, never for billing or hard limits.  If an exact
- *   token count is needed, replace the approximation with a proper tokenizer.
+ * ARCHITECTURE — WORKER THREAD:
+ *   @xenova/transformers runs ONNX inference synchronously on the CPU.
+ *   Each inference call blocks the calling thread for ~100-400ms.
+ *   Running this on the Node.js main event-loop thread would freeze ALL
+ *   I/O (HTTP, DB, timers) for the entire embedding duration.
+ *
+ *   Instead, a persistent Worker thread runs the ONNX pipeline.  The main
+ *   thread sends text batches via postMessage() and awaits the result via
+ *   a Promise.  The main event loop stays fully responsive while inference
+ *   runs in parallel on a dedicated thread.
+ *
+ * FIRST-RUN NOTE:
+ *   On the very first invocation the ONNX model weights (~22 MB) are
+ *   downloaded from HuggingFace and cached locally.  This can take
+ *   10-60 seconds depending on network speed.  All subsequent calls
+ *   reuse the warm worker.
+ *   If the download fails the error propagates so the ingestion pipeline
+ *   marks the document as 'failed' — it will NOT hang indefinitely.
+ *
+ * BATCH LOGGING:
+ *   Progress is logged every LOG_BATCH_SIZE chunks so large documents
+ *   don't appear silent in logs.
  */
+const { Worker } = require('worker_threads');
+const path = require('path');
 const EmbeddingProvider = require('./EmbeddingProvider');
 const config = require('../../../config');
 const logger = require('../../../utils/logger.util');
 
+const WORKER_PATH = path.join(__dirname, 'embeddingWorker.js');
+const LOG_BATCH_SIZE = 10;
+
 class LocalEmbeddingProvider extends EmbeddingProvider {
   constructor() {
     super();
-    this._pipeline = null;
-    this._model = config.embedding.model;
+    this._model    = config.embedding.model;
+    this._worker   = null;
+    this._pending  = [];        // queue of { texts, resolve, reject }
+    this._busy     = false;     // true while the worker is processing a batch
+    this._starting = false;     // true while the worker is being started
+  }
+
+  // ── Worker lifecycle ──────────────────────────────────────────────────────
+
+  /**
+   * Lazily start the persistent worker thread.
+   * Concurrent callers share the same worker — only one is ever created.
+   * @returns {Promise<Worker>}
+   */
+  _getWorker() {
+    if (this._worker) return Promise.resolve(this._worker);
+
+    return new Promise((resolve, reject) => {
+      if (this._worker) return resolve(this._worker);
+
+      logger.info('[Embedding] Starting worker thread…', { model: this._model });
+
+      const worker = new Worker(WORKER_PATH, {
+        // Worker receives `worker_threads` built-ins automatically.
+        // No extra env vars needed; it shares the parent's node_modules.
+      });
+
+      worker.once('online', () => {
+        logger.info('[Embedding] Worker thread online.', { model: this._model });
+        this._worker = worker;
+        resolve(worker);
+      });
+
+      worker.on('error', (err) => {
+        logger.error('[Embedding] Worker thread error', { model: this._model, error: err.message, stack: err.stack });
+        // Reset so the next call creates a fresh worker
+        this._worker   = null;
+        this._busy     = false;
+        // Reject all pending requests
+        const pending = this._pending.splice(0);
+        for (const { reject: rej } of pending) rej(err);
+        reject(err);
+      });
+
+      worker.on('exit', (code) => {
+        if (code !== 0) {
+          logger.warn('[Embedding] Worker exited with code', { code, model: this._model });
+          this._worker = null;
+          this._busy   = false;
+          const pending = this._pending.splice(0);
+          for (const { reject: rej } of pending) rej(new Error(`Embedding worker exited with code ${code}`));
+        }
+      });
+
+      worker.on('message', (msg) => {
+        this._busy = false;
+        const item = this._pending.shift();
+        if (!item) return;   // spurious message
+
+        if (msg.type === 'result') {
+          item.resolve(msg.embeddings);
+        } else if (msg.type === 'error') {
+          item.reject(new Error(`[EmbeddingWorker] ${msg.message}`));
+        }
+
+        // Process next queued batch if any
+        this._processNext();
+      });
+    });
   }
 
   /**
-   * Lazily load the pipeline on first use.
+   * Send the next pending batch to the worker if it is idle.
    * @private
    */
-  async _getPipeline() {
-    if (this._pipeline) return this._pipeline;
-
-    logger.info('[Embedding] Loading local model…', { model: this._model });
-    // Dynamic import: @xenova/transformers is an ES module.
-    const { pipeline } = await import('@xenova/transformers');
-    this._pipeline = await pipeline('feature-extraction', this._model, {
-      quantized: true,  // use int8-quantised weights for faster inference
+  _processNext() {
+    if (this._busy || this._pending.length === 0 || !this._worker) return;
+    this._busy = true;
+    this._worker.postMessage({
+      type:  'embed',
+      texts: this._pending[0].texts,
+      model: this._model,
     });
-    logger.info('[Embedding] Local model ready.', { model: this._model });
-    return this._pipeline;
   }
+
+  // ── Public API ────────────────────────────────────────────────────────────
 
   /**
    * Generate a single embedding.
-   * The output is a mean-pooled, normalised vector.
    * @param {string} text
    * @returns {Promise<number[]>}
    */
   async generateEmbedding(text) {
-    const pipe = await this._getPipeline();
-    const output = await pipe(text, { pooling: 'mean', normalize: true });
-    return Array.from(output.data);
+    const [embedding] = await this.generateEmbeddings([text]);
+    return embedding;
   }
 
   /**
-   * Batch embedding (sequential under the hood — override if the model
-   * supports true batch inference in a future version).
+   * Generate embeddings for multiple texts.
+   * Batches are serialised through the worker — one batch at a time.
+   * Logs progress every LOG_BATCH_SIZE items.
+   *
    * @param {string[]} texts
    * @returns {Promise<number[][]>}
    */
   async generateEmbeddings(texts) {
-    const pipe = await this._getPipeline();
-    const results = [];
-    for (const text of texts) {
-      const output = await pipe(text, { pooling: 'mean', normalize: true });
-      results.push(Array.from(output.data));
+    if (!texts || texts.length === 0) return [];
+
+    // Ensure the worker is running
+    await this._getWorker();
+
+    const total = texts.length;
+
+    // Process in LOG_BATCH_SIZE-sized groups so we log progress and allow
+    // other queued documents to interleave (each batch queued separately).
+    const allEmbeddings = [];
+    const BATCH_SIZE = LOG_BATCH_SIZE;
+
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      const batchTexts = texts.slice(i, i + BATCH_SIZE);
+      const batchNum   = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(total / BATCH_SIZE);
+
+      logger.info('[Embedding] Batch started', {
+        batch: `${batchNum}/${totalBatches}`,
+        batchSize: batchTexts.length,
+        chunkRange: `${i}–${i + batchTexts.length - 1}`,
+        model: this._model,
+      });
+
+      const batchStart = Date.now();
+      const batchEmbeddings = await this._sendBatch(batchTexts);
+      const batchMs = Date.now() - batchStart;
+
+      logger.info('[Embedding] Batch done', {
+        batch: `${batchNum}/${totalBatches}`,
+        durationMs: batchMs,
+        msPerChunk: Math.round(batchMs / batchTexts.length),
+      });
+
+      allEmbeddings.push(...batchEmbeddings);
     }
-    return results;
+
+    return allEmbeddings;
+  }
+
+  /**
+   * Queue a batch of texts to the worker and return a Promise that resolves
+   * when the worker finishes this batch.
+   * @private
+   * @param {string[]} texts
+   * @returns {Promise<number[][]>}
+   */
+  _sendBatch(texts) {
+    return new Promise((resolve, reject) => {
+      this._pending.push({ texts, resolve, reject });
+      this._processNext();
+    });
   }
 }
 
