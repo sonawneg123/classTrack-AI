@@ -44,11 +44,12 @@ const LOG_BATCH_SIZE = 10;
 class LocalEmbeddingProvider extends EmbeddingProvider {
   constructor() {
     super();
-    this._model    = config.embedding.model;
-    this._worker   = null;
-    this._pending  = [];        // queue of { texts, resolve, reject }
-    this._busy     = false;     // true while the worker is processing a batch
-    this._starting = false;     // true while the worker is being started
+    this._model      = config.embedding.model;
+    this._worker     = null;
+    this._pending    = [];       // queue of { texts, resolve, reject }
+    this._busy       = false;    // true while the worker is processing a batch
+    this._starting   = false;    // true while the worker is being started
+    this._disposing  = false;    // true when dispose() is in progress or complete
   }
 
   // ── Worker lifecycle ──────────────────────────────────────────────────────
@@ -89,7 +90,9 @@ class LocalEmbeddingProvider extends EmbeddingProvider {
       });
 
       worker.on('exit', (code) => {
-        if (code !== 0) {
+        // Exit code 1 is the normal result of worker.terminate() — only treat
+        // it as an unexpected crash when NOT in the middle of intentional disposal.
+        if (code !== 0 && !this._disposing) {
           logger.warn('[Embedding] Worker exited with code', { code, model: this._model });
           this._worker = null;
           this._busy   = false;
@@ -202,6 +205,37 @@ class LocalEmbeddingProvider extends EmbeddingProvider {
       this._pending.push({ texts, resolve, reject });
       this._processNext();
     });
+  }
+  /**
+   * Gracefully terminate the worker thread.
+   *
+   * Rejects all pending requests with a "disposed" error, then calls
+   * worker.terminate().  Safe to call multiple times — no-op when the worker
+   * was never started or has already been terminated.
+   *
+   * worker.terminate() causes the worker to exit with code 1 — this is normal
+   * Node.js behaviour.  The _disposing flag prevents the exit handler from
+   * treating this as an unexpected crash.
+   *
+   * Use in test teardown (afterAll) to prevent Jest open-handle warnings.
+   *
+   * @returns {Promise<void>}
+   */
+  async dispose() {
+    if (this._disposing) return;
+    if (!this._worker) return;
+
+    this._disposing = true;
+
+    const disposeErr = new Error('EmbeddingProvider disposed');
+    const pending = this._pending.splice(0);
+    for (const { reject: rej } of pending) rej(disposeErr);
+
+    const worker = this._worker;
+    this._worker = null;
+    this._busy = false;
+
+    await worker.terminate();
   }
 }
 

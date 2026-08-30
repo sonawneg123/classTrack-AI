@@ -26,6 +26,22 @@ function getEmbeddingProvider() {
   return _embeddingProvider;
 }
 
+/**
+ * Dispose the singleton embedding provider, terminating its worker thread.
+ *
+ * Intended for test teardown (afterAll) to prevent Jest open-handle warnings.
+ * Safe to call even when the provider was never instantiated.
+ * Clears the singleton so a subsequent getEmbeddingProvider() creates a fresh one.
+ *
+ * @returns {Promise<void>}
+ */
+async function disposeEmbeddingProvider() {
+  if (_embeddingProvider) {
+    await _embeddingProvider.dispose();
+    _embeddingProvider = null;
+  }
+}
+
 // ── LLM provider ──────────────────────────────────────────────────────────────
 let _llmProvider = null;
 
@@ -35,4 +51,4 @@ function getLLMProvider() {
   return _llmProvider;
 }
 
-module.exports = { getEmbeddingProvider, getLLMProvider };
+module.exports = { getEmbeddingProvider, getLLMProvider, disposeEmbeddingProvider };

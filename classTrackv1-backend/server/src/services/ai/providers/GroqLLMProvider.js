@@ -11,10 +11,11 @@
  *   GROQ_API_KEY  — required
  *   GROQ_RAG_MODEL — defaults to llama3-70b-8192
  */
-const Groq       = require('groq-sdk');
+const Groq        = require('groq-sdk');
 const LLMProvider = require('./LLMProvider');
 const config      = require('../../../config');
 const logger      = require('../../../utils/logger.util');
+const { estimateTokens } = require('../../../utils/tokenEstimate.util');
 
 class GroqLLMProvider extends LLMProvider {
   constructor() {
@@ -52,16 +53,46 @@ class GroqLLMProvider extends LLMProvider {
    * @returns {Promise<object>}
    */
   async generateStructuredOutput({ system, user }, options = {}) {
-    const completion = await this._groq.chat.completions.create({
+    const maxTokens = options.maxTokens ?? 2048;
+
+    // ── Diagnostic: log request size metadata immediately before the API call ──
+    // Safe metadata only — content is never logged.
+    const systemChars        = (system || '').length;
+    const userChars          = (user   || '').length;
+    const estimatedInputTokens = estimateTokens(system) + estimateTokens(user);
+    logger.info('[GroqLLMProvider] Request size', {
       model:                 this._model,
-      temperature:           options.temperature   ?? 0.1,
-      max_completion_tokens: options.maxTokens     ?? 2048,
-      response_format:       { type: 'json_object' },
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user',   content: user },
-      ],
+      systemChars,
+      userChars,
+      estimatedInputTokens,
+      maxTokens,
+      estimatedTotalRequestTokens: estimatedInputTokens + maxTokens,
     });
+
+    let completion;
+    try {
+      completion = await this._groq.chat.completions.create({
+        model:                 this._model,
+        temperature:           options.temperature   ?? 0.1,
+        max_completion_tokens: maxTokens,
+        response_format:       { type: 'json_object' },
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user',   content: user },
+        ],
+      });
+    } catch (sdkErr) {
+      // Normalise Groq SDK errors so callers can check err.status reliably.
+      // The SDK throws objects with a .status property for HTTP errors.
+      // Re-throw as-is; the message is opaque to end users — upper layers
+      // (questionGeneration.service.js) map specific codes to safe messages.
+      logger.error('[GroqLLMProvider] API error', {
+        model:   this._model,
+        status:  sdkErr.status ?? sdkErr.statusCode ?? null,
+        message: sdkErr.message,
+      });
+      throw sdkErr;
+    }
     const raw = completion.choices?.[0]?.message?.content;
     if (!raw) throw new Error('GroqLLMProvider: empty structured response');
     // Strip any accidental markdown fences

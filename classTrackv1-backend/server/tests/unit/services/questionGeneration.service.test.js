@@ -19,7 +19,14 @@ jest.mock('../../../src/repositories/questionBank.repository', () => ({
 }));
 jest.mock('../../../src/services/knowledge/retrieval.service', () => ({
   search:       jest.fn(),
-  buildContext: jest.fn().mockReturnValue('Mocked context text'),
+  // buildContext now returns an object; mock the full shape
+  buildContext: jest.fn().mockReturnValue({
+    context:         'Mocked context text',
+    selectedCount:   1,
+    droppedCount:    0,
+    estimatedTokens: 50,
+    budgetTokens:    4700,
+  }),
 }));
 jest.mock('../../../src/services/ai/providers', () => ({ getLLMProvider: jest.fn() }));
 

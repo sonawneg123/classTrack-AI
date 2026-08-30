@@ -2,6 +2,7 @@
  * server/tests/unit/repositories/knowledgeChunk.repository.test.js
  *
  * Tests for KnowledgeChunkRepository — pool.query mocked, no live DB.
+ * Sprint 2: adds keywordSearch() tests.
  */
 jest.mock('../../../src/database/connection', () => ({
   pool: { query: jest.fn() },
@@ -69,5 +70,76 @@ describe('KnowledgeChunkRepository.similaritySearch', () => {
     const [sql, params] = pool.query.mock.calls[0];
     expect(sql).toMatch(/kd\.topic_id = /);
     expect(params).toContain(3);
+  });
+});
+
+// ── Sprint 2: keywordSearch ───────────────────────────────────────────────────
+
+describe('KnowledgeChunkRepository.keywordSearch', () => {
+  it('enforces teacher_id in WHERE clause', async () => {
+    pool.query.mockResolvedValue([[]]);
+    await chunkRepo.keywordSearch(9, 'photosynthesis', 10);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/kc\.teacher_id = /);
+    expect(params).toContain(9);
+  });
+
+  it('only searches ready documents', async () => {
+    pool.query.mockResolvedValue([[]]);
+    await chunkRepo.keywordSearch(9, 'photosynthesis', 10);
+    const [sql] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/kd\.status = 'ready'/);
+  });
+
+  it('excludes soft-deleted documents', async () => {
+    pool.query.mockResolvedValue([[]]);
+    await chunkRepo.keywordSearch(9, 'photosynthesis', 10);
+    const [sql] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/kd\.deleted_at IS NULL/);
+  });
+
+  it('uses websearch_to_tsquery for FTS', async () => {
+    pool.query.mockResolvedValue([[]]);
+    await chunkRepo.keywordSearch(9, 'photosynthesis', 10);
+    const [sql] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/websearch_to_tsquery/);
+    expect(sql).toMatch(/to_tsvector/);
+  });
+
+  it('uses ts_rank_cd for ranking', async () => {
+    pool.query.mockResolvedValue([[]]);
+    await chunkRepo.keywordSearch(9, 'test query', 10);
+    const [sql] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/ts_rank_cd/);
+  });
+
+  it('filters by topicId when provided', async () => {
+    pool.query.mockResolvedValue([[]]);
+    await chunkRepo.keywordSearch(9, 'photosynthesis', 5, { topicId: 15 });
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/kd\.topic_id = /);
+    expect(params).toContain(15);
+  });
+
+  it('passes query text as first parameter', async () => {
+    pool.query.mockResolvedValue([[]]);
+    await chunkRepo.keywordSearch(9, 'biodiversity', 5);
+    const [, params] = pool.query.mock.calls[0];
+    expect(params[0]).toBe('biodiversity');
+  });
+
+  it('applies LIMIT to results', async () => {
+    pool.query.mockResolvedValue([[]]);
+    await chunkRepo.keywordSearch(9, 'test', 7);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toMatch(/LIMIT/);
+    expect(params).toContain(7);
+  });
+
+  it('returns rows from pool.query', async () => {
+    const mockRows = [{ chunk_id: 1, keyword_rank: 0.12 }];
+    pool.query.mockResolvedValue([mockRows]);
+    const result = await chunkRepo.keywordSearch(9, 'photosynthesis', 5);
+    expect(result).toEqual(mockRows);
   });
 });

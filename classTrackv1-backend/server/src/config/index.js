@@ -99,13 +99,18 @@ const config = {
   rag: {
     // Stage 1: number of candidate chunks to retrieve from the vector index.
     // These are then filtered by similarity threshold and diversity rules.
-    candidateK:   Number(process.env.RAG_CANDIDATE_K)     || 20,
+    candidateK:   Number(process.env.RAG_CANDIDATE_K)         || 20,
+    // Sprint 2: number of candidate chunks for keyword (FTS) retrieval.
+    keywordCandidateK: Number(process.env.RAG_KEYWORD_CANDIDATE_K) || 20,
     // Stage 2: maximum number of chunks to pass to the LLM as context.
-    finalK:       Number(process.env.RAG_FINAL_K)         || 8,
-    // Minimum cosine similarity (0–1) required to include a chunk.
+    finalK:       Number(process.env.RAG_FINAL_K)             || 8,
+    // Minimum cosine similarity (0–1) required to include a vector chunk.
     // Chunks with similarity < this threshold are discarded before LLM call.
     // IMPORTANT: this is cosine SIMILARITY (1 - cosine distance), not distance.
-    minSimilarity: Number(process.env.RAG_MIN_SIMILARITY) || 0.30,
+    minSimilarity: Number(process.env.RAG_MIN_SIMILARITY)     || 0.30,
+    // Sprint 2: Reciprocal Rank Fusion constant k (default 60 per literature).
+    // Higher k reduces the impact of rank differences between the two systems.
+    rrfK:          Number(process.env.RAG_RRF_K)              || 60,
     // Legacy alias kept so existing code that reads config.rag.topK still works.
     get topK() { return this.candidateK; },
     // Maximum characters allowed per knowledge document upload.
@@ -120,14 +125,35 @@ const config = {
     maxSizeMb:    Number(process.env.RAG_MAX_SIZE_MB)     || 50,
     // Maximum retry attempts before a document is permanently failed.
     maxRetries:   Number(process.env.RAG_MAX_RETRIES)     || 3,
+
+    // ── Sprint 2 Phase 2: Cross-Encoder Reranking ─────────────────────────────
+    reranker: {
+      // Set to false to disable reranking entirely (hybrid retrieval still works).
+      enabled:    process.env.RAG_RERANKER_ENABLED !== 'false',
+      // ONNX-compatible cross-encoder model from HuggingFace (Xenova namespace).
+      // Xenova/ms-marco-MiniLM-L-6-v2 is a quantized cross-encoder for passage
+      // relevance scoring; 6-layer MiniLM, ~22MB, fast inference.
+      model:      process.env.RAG_RERANKER_MODEL      || 'Xenova/ms-marco-MiniLM-L-6-v2',
+      // Number of top fused candidates to send to the cross-encoder.
+      // Keep this small (≤20) to bound reranking latency.
+      candidateK: Number(process.env.RAG_RERANKER_CANDIDATE_K) || 15,
+    },
   },
 
   questionGeneration: {
     // Maximum questions per single generation request.
     maxQuestionsPerRequest: Number(process.env.QG_MAX_QUESTIONS)    || 20,
-    // Maximum context characters sent to the LLM in one request.
-    maxContextChars:        Number(process.env.QG_MAX_CONTEXT_CHARS) || 12_000,
+    // Hard character cap for the context body (fast pre-filter before token budget).
+    // Conservative default: 3,500 chars.
+    // Empirical calibration: observed ratio ~2.44 chars/token for full Groq request
+    // payload.  3,500 chars / 2.0 c/t = 1,750 estimated context tokens — well within
+    // any reasonable budget even for the smallest Groq free-tier limit (8,000 TPM).
+    // Override via QG_MAX_CONTEXT_CHARS env var for larger-tier accounts.
+    maxContextChars:        Number(process.env.QG_MAX_CONTEXT_CHARS) || 3_500,
     // Maximum tokens the LLM may return per generation request.
+    // This is the absolute ceiling; the actual maxTokens passed to the provider is
+    // dynamically set per-request to outputReserve (count-dependent) so that
+    // input_tokens + max_completion_tokens always stays below the provider limit.
     maxTokens:              Number(process.env.QG_MAX_TOKENS)        || 4096,
     // Timeout in ms for a single generation request.
     timeoutMs:              Number(process.env.QG_TIMEOUT_MS)        || 60_000,
@@ -135,6 +161,34 @@ const config = {
     promptVersion:          process.env.QG_PROMPT_VERSION            || 'v1',
     // Number of retrieval chunks passed as context.
     retrievalTopK:          Number(process.env.QG_RETRIEVAL_TOP_K)   || 20,
+
+    // ── LLM Context Budget ───────────────────────────────────────────────────
+    // Effective request ceiling for the configured LLM provider tier.
+    //
+    // IMPORTANT: This is NOT the model's architectural context window.
+    // This is the TPM/request-token limit that Groq enforces for your tier.
+    // For Groq free tier (llama3-70b-8192): limit = 8,000 tokens.
+    //
+    // We set the effective ceiling to 6,500 (below 8,000) to provide a hard
+    // safety margin against tokenizer approximation error.  The estimator uses
+    // 2.0 chars/token but the empirically observed ratio is ~1.5-2.4 c/t,
+    // meaning actual tokens can be higher than our estimate.  A 1,500-token
+    // gap between our ceiling (6,500) and Groq's limit (8,000) absorbs this.
+    llmContextWindowTokens: Number(process.env.QG_LLM_CONTEXT_WINDOW_TOKENS) || 6_500,
+    // Tokens reserved for the system prompt (estimated at 2.0 c/t).
+    systemPromptReserveTokens: Number(process.env.QG_SYSTEM_PROMPT_RESERVE_TOKENS) || 700,
+    // Tokens reserved for the user-prompt scaffolding (topic/subject headers,
+    // delimiters, generation instruction) -- does NOT include the context body.
+    userPromptOverheadTokens: Number(process.env.QG_USER_PROMPT_OVERHEAD_TOKENS) || 200,
+    // Tokens reserved per requested question for expected generated output.
+    // A single MCQ with 4 options + explanation approx 120-180 tokens.
+    // Using 250 per question gives a conservative safety margin.
+    outputTokensPerQuestion: Number(process.env.QG_OUTPUT_TOKENS_PER_QUESTION) || 250,
+    // Hard minimum output reserve even when count=1 (covers JSON scaffolding + wrapper).
+    minOutputReserveTokens: Number(process.env.QG_MIN_OUTPUT_RESERVE_TOKENS) || 400,
+    // Safety margin subtracted from the effective input budget.
+    // Accounts for residual tokenizer approximation error.
+    safetyMarginTokens: Number(process.env.QG_SAFETY_MARGIN_TOKENS) || 300,
   },
 
   upload: {

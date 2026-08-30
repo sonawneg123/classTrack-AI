@@ -40,10 +40,10 @@ const questionRepo  = require('../../repositories/questionBank.repository');
 const { search, buildContext } = require('../knowledge/retrieval.service');
 const { getLLMProvider }       = require('../ai/providers');
 const { validateBatch }        = require('./questionValidation.service');
+const { computeContextTokenBudget, estimateTokens } = require('../../utils/tokenEstimate.util');
 
 const PROMPT_VERSION = config.questionGeneration.promptVersion;
 const MAX_QUESTIONS  = config.questionGeneration.maxQuestionsPerRequest;
-const MAX_TOKENS     = config.questionGeneration.maxTokens;
 const RETRIEVAL_K    = config.questionGeneration.retrievalTopK;
 
 // ── Prompt Builder ────────────────────────────────────────────────────────────
@@ -124,6 +124,36 @@ Generate ${count} "${questionType}" question(s) at "${difficulty}" difficulty.
 Base every question ONLY on the educational material between CONTEXT_START and CONTEXT_END.
 Return valid JSON only.
 === STUDENT_REQUEST_END ===`;
+}
+
+// ── Provider error classifier ─────────────────────────────────────────────────
+
+/**
+ * Detect whether an error from the LLM provider is a token-limit / request-too-large
+ * error (HTTP 413 or similar provider-specific signals).
+ *
+ * We check the HTTP status code and common error message patterns from Groq.
+ * Never re-throw raw provider errors — caller surfaces a safe user message.
+ *
+ * @param {Error} err
+ * @returns {boolean}
+ */
+function _isTokenLimitError(err) {
+  // Groq SDK surfaces HTTP status on err.status or err.statusCode
+  const status = err.status ?? err.statusCode;
+  if (status === 413) return true;
+
+  // Groq also wraps some token-limit failures as 400s with specific messages
+  const msg = (err.message || '').toLowerCase();
+  if (
+    msg.includes('request too large') ||
+    msg.includes('token') && msg.includes('limit') ||
+    msg.includes('context length') ||
+    msg.includes('maximum context') ||
+    msg.includes('tpm limit')
+  ) return true;
+
+  return false;
 }
 
 // ── Resolve hierarchy for a topic ─────────────────────────────────────────────
@@ -241,20 +271,74 @@ async function generateQuestions({
     };
   }
 
-  // ── 5. Build hardened context string ─────────────────────────────────────
-  const contextText = buildContext(chunks);
-
-  logger.debug('[QuestionGen] Context assembled', {
-    ...logCtx,
-    chunkCount: chunks.length,
-    contextChars: contextText.length,
+  // ── 5. Compute LLM context token budget ──────────────────────────────────
+  const qgCfg = config.questionGeneration;
+  const outputReserve = Math.max(
+    qgCfg.minOutputReserveTokens,
+    count * qgCfg.outputTokensPerQuestion
+  );
+  const contextTokenBudget = computeContextTokenBudget({
+    windowTokens:        qgCfg.llmContextWindowTokens,
+    systemPromptReserve: qgCfg.systemPromptReserveTokens,
+    userPromptOverhead:  qgCfg.userPromptOverheadTokens,
+    outputReserve,
+    safetyMargin:        qgCfg.safetyMarginTokens,
   });
 
-  // ── 6. Build prompts ──────────────────────────────────────────────────────
+  // ── 6. Build hardened context string (budget-aware) ───────────────────────
+  const budgetResult = buildContext(chunks, qgCfg.maxContextChars, contextTokenBudget);
+  const contextText  = budgetResult.context;
+
+  if (budgetResult.droppedCount > 0) {
+    logger.info('[QuestionGen] Context budget applied', {
+      ...logCtx,
+      candidateChunks:        chunks.length,
+      selectedChunks:         budgetResult.selectedCount,
+      droppedChunks:          budgetResult.droppedCount,
+      estimatedContextTokens: budgetResult.estimatedTokens,
+      contextChars:           contextText.length,
+      budgetTokens:           budgetResult.budgetTokens,
+      outputReserve,
+      windowTokens:           qgCfg.llmContextWindowTokens,
+      reason:                 'context_budget',
+    });
+  } else {
+    logger.debug('[QuestionGen] Context assembled (within budget)', {
+      ...logCtx,
+      chunkCount:             budgetResult.selectedCount,
+      estimatedContextTokens: budgetResult.estimatedTokens,
+      contextChars:           contextText.length,
+      budgetTokens:           budgetResult.budgetTokens,
+    });
+  }
+
+  // ── 7. Build prompts ──────────────────────────────────────────────────────
   const systemPrompt = buildSystemPrompt(questionType, difficulty, count);
   const userPrompt   = buildUserPrompt(contextText, topic.name, subject.name, questionType, difficulty, count);
 
-  // ── 7. Call Groq via the LLMProvider abstraction ─────────────────────────
+  // ── 8. Diagnostic: log final LLM request budget before Groq call ─────────
+  // Safe-metadata only — never logs educational context content.
+  const estimatedSystemTokens  = estimateTokens(systemPrompt);
+  const estimatedUserTokens    = estimateTokens(userPrompt);
+  const estimatedTotalRequest  = estimatedSystemTokens + estimatedUserTokens + outputReserve;
+  logger.info('[QuestionGen] FINAL LLM REQUEST BUDGET', {
+    questionCount:                count,
+    contextChars:                 contextText.length,
+    estimatedContextTokens:       budgetResult.estimatedTokens,
+    contextBudgetTokens:          contextTokenBudget,
+    systemPromptEstimatedTokens:  estimatedSystemTokens,
+    userPromptEstimatedTokens:    estimatedUserTokens,
+    outputReserveTokens:          outputReserve,
+    estimatedTotalRequestTokens:  estimatedTotalRequest,
+    effectiveCeilingTokens:       qgCfg.llmContextWindowTokens,
+    safetyMarginTokens:           qgCfg.safetyMarginTokens,
+  });
+
+  // ── 9. Call Groq via the LLMProvider abstraction ─────────────────────────
+  // CRITICAL: pass outputReserve as maxTokens, NOT the global QG_MAX_TOKENS.
+  // This ensures: estimatedInputTokens + max_completion_tokens <= provider limit.
+  // The provider request budget is: all input tokens + max_completion_tokens.
+  // Using the count-dependent outputReserve guarantees count=2 < count=10.
   logger.debug('[RAG] LLM generation started', logCtx);
   const llmStart = Date.now();
   let llmResponse;
@@ -262,10 +346,25 @@ async function generateQuestions({
     const llm = getLLMProvider();
     llmResponse = await llm.generateStructuredOutput(
       { system: systemPrompt, user: userPrompt },
-      { temperature: 0.4, maxTokens: MAX_TOKENS }
+      { temperature: 0.4, maxTokens: outputReserve }
     );
   } catch (err) {
-    logger.error('[QuestionGen] LLM call failed', { ...logCtx, error: err.message });
+    // Detect provider token-limit / request-too-large errors (e.g. HTTP 413).
+    // These should not occur when the budget layer is working correctly, but
+    // we handle them defensively so the user always gets a safe, actionable message.
+    const is413 = _isTokenLimitError(err);
+    logger.error('[QuestionGen] LLM call failed', {
+      ...logCtx,
+      error:  err.message,
+      status: err.status ?? err.statusCode ?? null,
+      is413,
+    });
+    if (is413) {
+      throw ApiError.badRequest(
+        'Your learning material is too large for this generation request. ' +
+        'Please try a smaller question count or retry.'
+      );
+    }
     throw ApiError.internal(
       'Question generation failed: the AI service returned an error. Please try again.'
     );
@@ -274,7 +373,7 @@ async function generateQuestions({
 
   logger.debug('[RAG] LLM generation completed', { ...logCtx, llmDurationMs });
 
-  // ── 8. Parse + validate ───────────────────────────────────────────────────
+  // ── 9. Parse + validate ───────────────────────────────────────────────────
   const rawQuestions = Array.isArray(llmResponse.questions)
     ? llmResponse.questions
     : Object.values(llmResponse).find((v) => Array.isArray(v)) || [];
@@ -298,14 +397,14 @@ async function generateQuestions({
     );
   }
 
-  // ── 9. Build source provenance ────────────────────────────────────────────
+  // ── 10. Build source provenance ───────────────────────────────────────────
   // Primary source = the top-ranked chunk. Every question gets the same
   // primary source since they were generated from the same context window.
   const primaryChunk    = chunks[0];
   const sourceDocId     = primaryChunk.source.documentId;
   const sourceChunkId   = primaryChunk.chunkId;
 
-  // ── 10. Store valid questions (with duplicate detection) ───────────────────
+  // ── 11. Store valid questions (with duplicate detection) ──────────────────
   const storedQuestions = [];
   let skippedDuplicates = 0;
 

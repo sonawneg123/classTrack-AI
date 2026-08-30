@@ -153,6 +153,103 @@ class KnowledgeChunkRepository extends BaseRepository {
     const [rows] = await this.pool.query(sql, params);
     return rows;
   }
+
+  /**
+   * Keyword (full-text) search using PostgreSQL tsvector/tsquery.
+   *
+   * Uses websearch_to_tsquery for robust query parsing (handles phrases,
+   * negation, OR-terms without raw tsquery syntax from the caller).
+   * Uses ts_rank_cd for coverage-density ranking.
+   *
+   * Security:
+   *   - Identical auth scope as similaritySearch():
+   *     kc.teacher_id, kd.deleted_at IS NULL, kd.status = 'ready'.
+   *   - All optional filters (topicId, chapterId, subjectId, curriculumId)
+   *     are enforced in SQL — never filtered in JavaScript after retrieval.
+   *
+   * No migration required:
+   *   - tsvector is computed dynamically via to_tsvector('english', kc.chunk_text).
+   *   - tsquery is produced by websearch_to_tsquery('english', $query).
+   *
+   * Returns rows with the same column shape as similaritySearch()
+   * so _mapRow() in retrieval.service.js can process them identically,
+   * except 'similarity' is replaced by 'keyword_rank' (ts_rank_cd score).
+   *
+   * @param {number}   teacherId
+   * @param {string}   queryText    Raw natural-language search query
+   * @param {number}   [topK]
+   * @param {object}   [filters]    Optional { topicId, chapterId, subjectId, curriculumId }
+   * @returns {Promise<Array>}
+   */
+  async keywordSearch(teacherId, queryText, topK, filters = {}) {
+    const k = topK || config.rag.keywordCandidateK;
+
+    const whereClauses = ['kc.teacher_id = $2'];
+    // $1 = tsquery, $2 = teacherId
+    const params = [queryText, teacherId];
+
+    if (filters.topicId) {
+      params.push(filters.topicId);
+      whereClauses.push(`kd.topic_id = $${params.length}`);
+    }
+    if (filters.chapterId) {
+      params.push(filters.chapterId);
+      whereClauses.push(`t.chapter_id = $${params.length}`);
+    }
+    if (filters.subjectId) {
+      params.push(filters.subjectId);
+      whereClauses.push(`ch.subject_id = $${params.length}`);
+    }
+    if (filters.curriculumId) {
+      params.push(filters.curriculumId);
+      whereClauses.push(`s.curriculum_id = $${params.length}`);
+    }
+
+    params.push(k);
+    const kIdx = params.length;
+
+    const sql = `
+      SELECT
+        kc.id          AS chunk_id,
+        kc.document_id,
+        kc.chunk_index,
+        kc.chunk_text,
+        kc.source_meta,
+        ts_rank_cd(
+          to_tsvector('english', kc.chunk_text),
+          websearch_to_tsquery('english', $1)
+        )              AS keyword_rank,
+        kd.id          AS doc_id,
+        kd.title       AS document_title,
+        kd.original_filename,
+        kd.file_type,
+        t.id           AS topic_id,
+        t.name         AS topic_name,
+        ch.id          AS chapter_id,
+        ch.name        AS chapter_name,
+        s.id           AS subject_id,
+        s.name         AS subject_name,
+        cu.id          AS curriculum_id,
+        cu.name        AS curriculum_name
+      FROM knowledge_chunks kc
+      JOIN knowledge_documents kd ON kd.id = kc.document_id
+      JOIN topics    t  ON t.id  = kd.topic_id
+      JOIN chapters  ch ON ch.id = t.chapter_id
+      JOIN subjects  s  ON s.id  = ch.subject_id
+      JOIN curricula cu ON cu.id = s.curriculum_id
+      WHERE ${whereClauses.join(' AND ')}
+        AND kd.deleted_at IS NULL
+        AND kd.status = 'ready'
+        AND to_tsvector('english', kc.chunk_text) @@ websearch_to_tsquery('english', $1)
+      ORDER BY ts_rank_cd(
+                 to_tsvector('english', kc.chunk_text),
+                 websearch_to_tsquery('english', $1)
+               ) DESC
+      LIMIT $${kIdx}`;
+
+    const [rows] = await this.pool.query(sql, params);
+    return rows;
+  }
 }
 
 module.exports = new KnowledgeChunkRepository();
