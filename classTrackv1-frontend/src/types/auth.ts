@@ -35,17 +35,31 @@ export interface EmailLoginPayload {
   password: string;
 }
 
-/** Students authenticate with email + password (P1 registration flow). */
+/** Students authenticate with email OR mobile + password. */
 export interface StudentLoginPayload {
-  email: string;
+  /** Email address or mobile number (e.g. +919876543210) */
+  identifier: string;
   password: string;
 }
 
-/** Student self-registration payload (P1). */
+/** Student self-registration payload — classroom code is mandatory. */
 export interface StudentRegisterPayload {
   name: string;
   email: string;
   mobile: string;
+  /** Classroom join code provided by the teacher — required for registration. */
+  classCode: string;
+  password: string;
+  confirmPassword: string;
+}
+
+/** Teacher self-registration payload — teacher code is mandatory. */
+export interface TeacherRegisterPayload {
+  name: string;
+  email: string;
+  mobile?: string;
+  /** Admin-issued teacher registration code — required for self-registration. */
+  teacherCode: string;
   password: string;
   confirmPassword: string;
 }

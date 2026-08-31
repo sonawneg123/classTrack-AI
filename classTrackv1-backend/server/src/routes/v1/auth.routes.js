@@ -90,6 +90,38 @@ router.post('/teacher/login', loginLimiter, validate(validator.teacherLogin), co
  *       409: { description: Username already taken }
  *       429: { description: Too many registration attempts }
  */
+/**
+ * @openapi
+ * /v1/auth/teacher/register:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Teacher self-registration
+ *     description: |
+ *       Self-registration for teachers. Requires a valid teacher registration code
+ *       issued by an admin. The code is validated server-side; the role is always
+ *       set to 'teacher' regardless of client input.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, email, password, confirmPassword, teacherCode]
+ *             properties:
+ *               name:        { type: string, minLength: 2, maxLength: 100 }
+ *               email:       { type: string, format: email }
+ *               mobile:      { type: string }
+ *               password:    { type: string, minLength: 8, format: password }
+ *               confirmPassword: { type: string }
+ *               teacherCode: { type: string, description: "Admin-issued registration code" }
+ *     responses:
+ *       201: { description: Teacher account created }
+ *       400: { description: Invalid code, validation error, or weak password }
+ *       409: { description: Email or mobile already registered }
+ *       429: { description: Too many registration attempts }
+ */
+router.post('/teacher/register', registerLimiter, validate(validator.teacherRegister), controller.teacherRegister);
+
 router.post('/student/register', registerLimiter, validate(validator.studentRegister), controller.studentRegister);
 
 /**
@@ -237,11 +269,9 @@ router.post('/logout-all', authenticate, controller.logoutAll);
  *     tags: [Auth]
  *     summary: Request a password reset link
  *     description: |
- *       Available for admin and teacher accounts (email-based login only —
- *       students authenticate by username and have no email on file; a
- *       student's password can only be reset by their teacher or an admin).
- *       Always returns a generic success message regardless of whether the
- *       email exists, to prevent account enumeration.
+ *       Available for admin, teacher, and student accounts. Always returns a
+ *       generic success message regardless of whether the email exists, to
+ *       prevent account enumeration. Lookup order: admin → teacher → student.
  *     requestBody:
  *       required: true
  *       content:
@@ -255,6 +285,40 @@ router.post('/logout-all', authenticate, controller.logoutAll);
  *       429: { description: Too many requests }
  */
 router.post('/forgot-password', forgotPasswordLimiter, validate(validator.forgotPassword), controller.forgotPassword);
+
+/**
+ * @openapi
+ * /v1/auth/validate-reset-token:
+ *   get:
+ *     tags: [Auth]
+ *     summary: Validate a password reset token
+ *     description: |
+ *       Validates a reset token and returns the name and email of the associated
+ *       account so the frontend can display account identity on the reset page.
+ *       Returns a generic 400 for any invalid, expired, or already-used token.
+ *       Never exposes role, ID, password hash, or the raw token.
+ *     parameters:
+ *       - in: query
+ *         name: token
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Token is valid
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     name:  { type: string, example: "Ganesh Sonawne" }
+ *                     email: { type: string, example: "s***@gmail.com" }
+ *       400: { description: Invalid or expired reset token }
+ */
+router.get('/validate-reset-token', validate(validator.validateResetToken), controller.validateResetToken);
 
 /**
  * @openapi

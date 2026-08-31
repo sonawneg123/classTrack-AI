@@ -1,7 +1,8 @@
 /**
  * server/tests/integration/studentRegistration.integration.test.js
  *
- * Integration tests for POST /api/v1/auth/student/register — P1.
+ * Integration tests for POST /api/v1/auth/student/register — P1 (with
+ * mandatory classroom code).
  *
  * Boundary: real Express app, real routing/validation/controllers/services,
  * real JWT signing — only the database layer is mocked.
@@ -11,8 +12,7 @@
 
 // Bypass rate limiters in integration tests — they use in-memory stores that
 // persist across test cases and cause 429s when many requests hit the same
-// endpoint within a single test run.  Functional behavior of rate limiting is
-// tested separately (the limiters themselves are express-rate-limit internals).
+// endpoint within a single test run.
 jest.mock('../../src/middleware/rateLimiter.middleware', () => {
   const passThrough = (_req, _res, next) => next();
   return {
@@ -35,6 +35,7 @@ jest.mock('../../src/repositories/student.repository', () => ({
   create:           jest.fn(),
   findById:         jest.fn(),
   findByEmail:      jest.fn(),
+  findByMobile:     jest.fn(),
   isCurrentlyLocked: jest.fn().mockReturnValue(false),
   incrementFailedAttempts: jest.fn(),
   resetFailedAttempts: jest.fn(),
@@ -97,28 +98,38 @@ jest.mock('../../src/services/email.service', () => ({
 const request    = require('supertest');
 const app        = require('../../app');
 const studentRepo = require('../../src/repositories/student.repository');
+const classroomRepo = require('../../src/repositories/classroom.repository');
 
 const REGISTER_URL = '/api/v1/auth/student/register';
+
+/** Active classroom fixture */
+const ACTIVE_CLASSROOM = {
+  id: 7, name: 'Grade 10A', is_active: true, deleted_at: null,
+  class_code: 'DEMO1234', teacher_id: 1,
+};
 
 const VALID_BODY = {
   name:            'Riya Patel',
   email:           'riya.patel@student.com',
   mobile:          '+919876543210',
+  classCode:       'DEMO1234',
   password:        'Secret@123',
   confirmPassword: 'Secret@123',
 };
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Default happy-path mocks
   studentRepo.existsByEmail.mockResolvedValue(false);
   studentRepo.existsByMobile.mockResolvedValue(false);
   studentRepo.existsByUsername.mockResolvedValue(false);
   studentRepo.create.mockResolvedValue(42);
+  classroomRepo.findByCode.mockResolvedValue(ACTIVE_CLASSROOM);
 });
 
 // ── Valid registration ────────────────────────────────────────────────────────
 
-describe('POST /api/v1/auth/student/register', () => {
+describe('POST /api/v1/auth/student/register — valid classroom code', () => {
   it('returns 201 with tokens and a safe user object on valid input', async () => {
     const res = await request(app).post(REGISTER_URL).send(VALID_BODY);
 
@@ -132,6 +143,13 @@ describe('POST /api/v1/auth/student/register', () => {
       name:  'Riya Patel',
       role:  'student',
     });
+  });
+
+  it('links the student to the classroom resolved from the code', async () => {
+    await request(app).post(REGISTER_URL).send(VALID_BODY);
+
+    const createCall = studentRepo.create.mock.calls[0][0];
+    expect(createCall.classroom_id).toBe(ACTIVE_CLASSROOM.id);
   });
 
   it('does NOT include password_hash in the response', async () => {
@@ -149,9 +167,69 @@ describe('POST /api/v1/auth/student/register', () => {
       expect.arrayContaining(['submission:submit', 'submission:view_own'])
     );
   });
+});
 
-  // ── Duplicate detection ─────────────────────────────────────────────────────
+// ── Classroom code validation ─────────────────────────────────────────────────
 
+describe('POST /api/v1/auth/student/register — classroom code validation', () => {
+  it('returns 400 when classCode is missing', async () => {
+    const { classCode: _omit, ...body } = VALID_BODY;
+    const res = await request(app).post(REGISTER_URL).send(body);
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toBe('Validation failed.');
+    expect(studentRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when classroom code does not exist', async () => {
+    classroomRepo.findByCode.mockResolvedValue(null);
+
+    const res = await request(app).post(REGISTER_URL).send(VALID_BODY);
+
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/invalid classroom code/i);
+    expect(studentRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when classroom is inactive', async () => {
+    classroomRepo.findByCode.mockResolvedValue({ ...ACTIVE_CLASSROOM, is_active: false });
+
+    const res = await request(app).post(REGISTER_URL).send(VALID_BODY);
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/inactive/i);
+    expect(studentRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when classroom has been deleted', async () => {
+    classroomRepo.findByCode.mockResolvedValue({
+      ...ACTIVE_CLASSROOM, deleted_at: new Date().toISOString(),
+    });
+
+    const res = await request(app).post(REGISTER_URL).send(VALID_BODY);
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/no longer available/i);
+    expect(studentRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('looks up the classroom code case-insensitively (normalized to upper)', async () => {
+    await request(app)
+      .post(REGISTER_URL)
+      .send({ ...VALID_BODY, classCode: 'demo1234' });
+
+    // classroomRepo.findByCode is called with the normalized uppercase code
+    expect(classroomRepo.findByCode).toHaveBeenCalledWith('DEMO1234');
+  });
+});
+
+// ── Duplicate detection ─────────────────────────────────────────────────────
+
+describe('POST /api/v1/auth/student/register — duplicate detection', () => {
   it('returns 409 "User already exists" when email is taken', async () => {
     studentRepo.existsByEmail.mockResolvedValue(true);
 
@@ -185,9 +263,11 @@ describe('POST /api/v1/auth/student/register', () => {
     expect(resMobile.status).toBe(409);
     expect(resEmail.body.message).toBe(resMobile.body.message);
   });
+});
 
-  // ── Validation errors ───────────────────────────────────────────────────────
+// ── Validation errors ───────────────────────────────────────────────────────
 
+describe('POST /api/v1/auth/student/register — validation', () => {
   it('returns 400 when email is missing', async () => {
     const { email: _omit, ...body } = VALID_BODY;
     const res = await request(app).post(REGISTER_URL).send(body);
@@ -247,7 +327,6 @@ describe('POST /api/v1/auth/student/register', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.message).toBe('Validation failed.');
-    // The Joi error message for mismatched confirmPassword
     expect(res.body.errors.join(' ')).toMatch(/do not match/i);
   });
 
@@ -259,16 +338,17 @@ describe('POST /api/v1/auth/student/register', () => {
     expect(res.status).toBe(400);
     expect(res.body.message).toBe('Validation failed.');
   });
+});
 
-  // ── Response security ───────────────────────────────────────────────────────
+// ── Response security ───────────────────────────────────────────────────────
 
+describe('POST /api/v1/auth/student/register — response security', () => {
   it('does not include SQL errors, stack traces, or internal details in error responses', async () => {
     studentRepo.existsByEmail.mockRejectedValue(new Error('connection refused'));
 
     const res = await request(app).post(REGISTER_URL).send(VALID_BODY);
 
     expect(res.status).toBe(500);
-    // Generic message — no internal detail
     expect(res.body.message).not.toMatch(/connection refused/i);
     expect(res.body.message).not.toMatch(/stack/i);
     expect(JSON.stringify(res.body)).not.toMatch(/password/i);

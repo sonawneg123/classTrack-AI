@@ -41,3 +41,5 @@ const forgotPasswordLimiter = rateLimit({
 });
 
 module.exports = { loginLimiter, registerLimiter, refreshLimiter, forgotPasswordLimiter };
+
+// Note: teacher registration uses registerLimiter (same window + max as student registration)

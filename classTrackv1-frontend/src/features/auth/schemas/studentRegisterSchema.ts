@@ -26,6 +26,12 @@ export const registrationPasswordField = z
   .regex(/[A-Za-z]/, "Password must contain at least one letter")
   .regex(/[0-9]/, "Password must contain at least one number");
 
+export const classCodeField = z
+  .string()
+  .min(4, "Enter a valid classroom code")
+  .max(12, "Classroom code is too long")
+  .regex(/^[A-Za-z0-9]+$/, "Classroom code should only contain letters and numbers");
+
 export const studentRegisterSchema = z
   .object({
     name: z
@@ -34,6 +40,7 @@ export const studentRegisterSchema = z
       .max(100, "Full name is too long"),
     email: emailField,
     mobile: mobileField,
+    classCode: classCodeField,
     password: registrationPasswordField,
     confirmPassword: z.string().min(1, "Please confirm your password"),
   })

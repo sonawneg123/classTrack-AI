@@ -56,6 +56,7 @@ export default function StudentRegisterPage() {
       name: "",
       email: "",
       mobile: "",
+      classCode: "",
       password: "",
       confirmPassword: "",
     },
@@ -124,6 +125,7 @@ export default function StudentRegisterPage() {
         name: values.name,
         email: values.email,
         mobile: values.mobile,
+        classCode: values.classCode,
         password: values.password,
         confirmPassword: values.confirmPassword,
       });
@@ -169,7 +171,8 @@ export default function StudentRegisterPage() {
             Create your student account
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Fill in your details to get started.
+            Fill in your details to get started. You'll need a classroom code
+            from your teacher.
           </Typography>
         </Stack>
 
@@ -221,6 +224,24 @@ export default function StudentRegisterPage() {
               "Include your country code, e.g. +91 for India"
             }
             {...register("mobile")}
+          />
+
+          {/* Classroom code */}
+          <TextField
+            label="Classroom code"
+            autoComplete="off"
+            fullWidth
+            placeholder="e.g. ABC12345"
+            error={Boolean(errors.classCode)}
+            helperText={
+              errors.classCode?.message ??
+              "Enter the classroom code provided by your teacher."
+            }
+            inputProps={{
+              style: { textTransform: "uppercase" },
+              "aria-label": "Classroom code",
+            }}
+            {...register("classCode")}
           />
 
           <Divider sx={{ my: 0.5 }} />

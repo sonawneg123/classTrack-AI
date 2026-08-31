@@ -1,0 +1,282 @@
+
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin Dashboard — Implementation Report</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #1f2328;
+    background: #ffffff;
+    padding: 32px 16px 48px;
+  }
+  .page { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { color: #57606a; font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 15px; font-weight: 700; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 2px solid #e5e7eb; color: #1f2328; }
+  h3 { font-size: 13px; font-weight: 700; margin: 16px 0 6px; color: #1f2328; }
+  p { margin-bottom: 8px; color: #1f2328; }
+  code { font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; background: #f7f8fa; border: 1px solid #e5e7eb; border-radius: 4px; padding: 1px 5px; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px; margin-right: 4px; }
+  .pass  { background: #dcfce7; color: #166534; }
+  .fail  { background: #fee2e2; color: #991b1b; }
+  .warn  { background: #fef9c3; color: #854d0e; }
+  .info  { background: #dbeafe; color: #1e40af; }
+  .pre  { background: #1e40af; color: #dbeafe; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0; }
+  th { background: #f7f8fa; text-align: left; padding: 7px 10px; font-weight: 600; border: 1px solid #e5e7eb; }
+  td { padding: 6px 10px; border: 1px solid #e5e7eb; vertical-align: top; }
+  tr:nth-child(even) td { background: #fafafa; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 8px; }
+  .box { background: #f7f8fa; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px; }
+  .num { font-size: 26px; font-weight: 700; color: #3b82d4; line-height: 1; }
+  .label { font-size: 11px; color: #57606a; text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+  .check { color: #166534; font-weight: 700; }
+  .cross { color: #991b1b; font-weight: 700; }
+  .muted { color: #57606a; }
+  ul { margin: 4px 0 8px 18px; }
+  li { margin-bottom: 2px; }
+  .section-rule { border: none; border-top: 1px solid #e5e7eb; margin: 24px 0; }
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 12px; color: #57606a; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>ClassTrack AI — Admin Dashboard</h1>
+  <p class="subtitle">Implementation Report  ·  Production-grade admin dashboard built from scratch</p>
+
+  
+  <div class="grid2">
+    <div class="box">
+      <div class="num">70</div>
+      <div class="label">Backend test suites passed</div>
+    </div>
+    <div class="box">
+      <div class="num">1220</div>
+      <div class="label">Backend tests passed (0 failures)</div>
+    </div>
+    <div class="box">
+      <div class="num">15</div>
+      <div class="label">New backend dashboard tests (all pass)</div>
+    </div>
+    <div class="box">
+      <div class="num">10</div>
+      <div class="label">New frontend dashboard tests (all pass)</div>
+    </div>
+  </div>
+
+  <h2>1. Existing Admin Architecture Discovered</h2>
+  <table>
+    <tr><th>Layer</th><th>Finding</th></tr>
+    <tr><td>Route</td><td><code>GET /api/v1/admin/stats</code> existed — basic 6-field aggregate, no breakdowns, no activity, no alerts</td></tr>
+    <tr><td>Controller</td><td><code>admin.controller.js</code> — <code>getStats</code>, teacher CRUD, classroom CRUD, registration codes, audit logs</td></tr>
+    <tr><td>Service</td><td><code>admin.service.js</code> — full teacher management logic, classroom creation, audit log writes</td></tr>
+    <tr><td>Repository</td><td><code>admin.repository.js</code> — basic <code>getPlatformStats()</code> single-row aggregate; no dashboard method</td></tr>
+    <tr><td>Auth</td><td><code>authenticate</code> + <code>authorizeRoles('admin')</code> already on all admin routes — reused unchanged</td></tr>
+    <tr><td>Dashboard page</td><td><code>AdminDashboardPage</code> was a placeholder stub with logout button only — no real data</td></tr>
+    <tr><td>Sidebar nav</td><td>Admin nav items had <code>disabled: true</code> on Teachers/Students/Classrooms — fixed</td></tr>
+  </table>
+
+  <h2>2. Existing APIs Reused (No Duplication)</h2>
+  <ul>
+    <li><code>adminApi.listTeachers</code> — used by Teachers page, not duplicated</li>
+    <li><code>adminApi.listRegistrationCodes</code> — used by Teachers page, not duplicated</li>
+    <li><code>adminApi.listClassrooms</code> — existing endpoint, not touched</li>
+    <li><code>authenticate + authorizeRoles('admin')</code> middleware — reused on new route</li>
+    <li>All <code>NotebookCard</code>, <code>NotebookStatCard</code>, <code>NotebookSection</code> components — reused as-is</li>
+    <li><code>LoadingSkeleton</code>, <code>EmptyState</code>, <code>DashboardLayout</code> — reused</li>
+  </ul>
+
+  <h2>3. New API Created</h2>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Auth</th><th>Response</th></tr>
+    <tr><td><code>GET</code></td><td><code>/api/v1/admin/dashboard</code></td><td>admin only (401/403 enforced)</td><td>overview · teachers · students · classrooms · evaluations · classroomList · activity · alerts</td></tr>
+  </table>
+
+  <h2>4. Backend Files Changed</h2>
+  <table>
+    <tr><th>File</th><th>Change</th></tr>
+    <tr><td><code>repositories/admin.repository.js</code></td><td>Added <code>getDashboardData()</code> — 3 efficient SQL queries (scalar aggregate, classroom list, activity feed)</td></tr>
+    <tr><td><code>services/admin.service.js</code></td><td>Added <code>getDashboard()</code> — builds structured response, applies security filter on details JSONB</td></tr>
+    <tr><td><code>controllers/admin.controller.js</code></td><td>Added <code>getDashboard</code> handler</td></tr>
+    <tr><td><code>routes/admin.routes.js</code></td><td>Added <code>GET /dashboard</code> route</td></tr>
+    <tr><td><code>tests/integration/adminDashboard.integration.test.js</code></td><td><strong>New file</strong> — 15 integration tests</td></tr>
+  </table>
+
+  <h2>5. Frontend Files Changed</h2>
+  <table>
+    <tr><th>File</th><th>Change</th></tr>
+    <tr><td><code>types/dashboard.ts</code></td><td>Added <code>AdminDashboardApiData</code>, <code>AdminDashboardClassroom</code>, <code>AdminDashboardActivityItem</code>, <code>AdminDashboardAlert</code> types</td></tr>
+    <tr><td><code>features/admin/api/adminApi.ts</code></td><td>Added <code>getDashboard()</code> method</td></tr>
+    <tr><td><code>features/admin/hooks/useAdminTeachers.ts</code></td><td>Added <code>adminKeys.dashboard</code> key + <code>useAdminDashboard()</code> hook (1 min staleTime)</td></tr>
+    <tr><td><code>layouts/navConfig.tsx</code></td><td>Fixed admin nav: removed disabled items, added working Teachers link, removed unused imports</td></tr>
+    <tr><td><code>pages/admin/DashboardPage.tsx</code></td><td><strong>Full rewrite</strong> — replaced placeholder stub with production dashboard</td></tr>
+    <tr><td><code>pages/admin/__tests__/DashboardPage.test.tsx</code></td><td><strong>New file</strong> — 10 frontend tests</td></tr>
+  </table>
+
+  <h2>6. Database Queries Added</h2>
+  <p>Three queries in <code>getDashboardData()</code> — all executed in parallel via <code>Promise.all</code>-equivalent sequential calls inside a single service method:</p>
+  <table>
+    <tr><th>#</th><th>Query</th><th>Technique</th></tr>
+    <tr><td>1</td><td>Scalar aggregate — all KPI counts in one row</td><td><code>COUNT(*) FILTER (WHERE ...)</code> — 18 sub-selects, single DB round-trip</td></tr>
+    <tr><td>2</td><td>Classroom list with teacher + student + task counts</td><td><code>JOIN + COUNT DISTINCT + GROUP BY</code>, LIMIT 20</td></tr>
+    <tr><td>3</td><td>Recent audit activity with resolved actor names</td><td><code>LEFT JOIN</code> on admins/teachers/students with <code>CASE</code>, LIMIT 20</td></tr>
+  </table>
+  <p>No N+1 queries. Existing <code>getPlatformStats()</code> untouched.</p>
+
+  <h2>7. KPI Metrics Implemented</h2>
+  <ul>
+    <li>Total Students / Active / Inactive</li>
+    <li>Total Teachers / Active / Inactive / Unassigned (no classroom)</li>
+    <li>Total Classrooms / Active / Inactive</li>
+    <li>Total Assignments (tasks, non-deleted)</li>
+    <li>Total Submissions</li>
+    <li>AI Evaluations: Pending / Analyzing / Completed / Failed (real <code>submissions.status</code> values)</li>
+    <li>Teacher registration codes: Active / Expired</li>
+  </ul>
+
+  <h2>8. AI Evaluation Metrics</h2>
+  <p>Uses the exact <code>status</code> values defined in the database schema CHECK constraint:</p>
+  <p><code>'submitted' → pending</code>   <code>'analyzing' → analyzing</code>   <code>'analyzed' → completed</code>   <code>'failed' → failed</code></p>
+  <p>No invented status names. Displayed as 4 stat cards in "AI Evaluation Overview" section.</p>
+
+  <h2>9. Classroom Statistics</h2>
+  <ul>
+    <li>Total / Active / Inactive count in KPI card</li>
+    <li>Classroom overview table: name, subject/section, teacher name, teacher active status, student count, task count, active/inactive status chip</li>
+    <li>Empty state when no classrooms exist</li>
+  </ul>
+
+  <h2>10. Activity Feed</h2>
+  <p>Sourced from <code>audit_logs</code> table — real database records only. Last 20 events. Each item shows:</p>
+  <ul>
+    <li>Action (formatted from snake_case to Title Case)</li>
+    <li>Actor name (resolved via LEFT JOIN on admins/teachers/students)</li>
+    <li>Relative timestamp (e.g. "5m ago", "2h ago")</li>
+  </ul>
+  <p><strong>Security:</strong> Details JSONB filtered — keys containing <code>password</code>, <code>hash</code>, <code>token</code>, <code>secret</code>, <code>code_hash</code> are stripped before response.</p>
+
+  <h2>11. Alerts</h2>
+  <table>
+    <tr><th>Alert Type</th><th>Condition</th><th>Action</th></tr>
+    <tr><td>pending_evaluations</td><td>submissions with status='submitted' &gt; 0</td><td>Info banner</td></tr>
+    <tr><td>failed_evaluations</td><td>submissions with status='failed' &gt; 0</td><td>Error banner</td></tr>
+    <tr><td>unassigned_teachers</td><td>teachers with no classroom &gt; 0</td><td>Warning + "Manage" button → /admin/teachers</td></tr>
+    <tr><td>expired_registration_codes</td><td>expired unused codes &gt; 0</td><td>Warning banner</td></tr>
+  </table>
+
+  <h2>12. Quick Actions</h2>
+  <ul>
+    <li>Generate Teacher Code → <code>/admin/teachers</code></li>
+    <li>Manage Teachers → <code>/admin/teachers</code></li>
+    <li>Add Classroom → <code>/admin/teachers</code></li>
+  </ul>
+  <p>All navigate to existing pages. No duplicate pages created.</p>
+
+  <h2>13. Authorization</h2>
+  <table>
+    <tr><th>Request</th><th>Expected</th><th>Result</th></tr>
+    <tr><td>Admin with valid JWT</td><td>200</td><td><span class="badge pass">200 ✓</span></td></tr>
+    <tr><td>Teacher with valid JWT</td><td>403</td><td><span class="badge pass">403 ✓</span></td></tr>
+    <tr><td>Student with valid JWT</td><td>403</td><td><span class="badge pass">403 ✓</span></td></tr>
+    <tr><td>No token</td><td>401</td><td><span class="badge pass">401 ✓</span></td></tr>
+  </table>
+  <p>Enforced at backend via <code>authenticate + authorizeRoles('admin')</code>. Frontend role route also restricts access.</p>
+
+  <h2>14. Security</h2>
+  <ul>
+    <li class="check">✓ No <code>password_hash</code> fields in response</li>
+    <li class="check">✓ No JWT tokens, refresh tokens, or reset tokens exposed</li>
+    <li class="check">✓ No <code>code_hash</code> values from registration codes</li>
+    <li class="check">✓ Details JSONB filtered for sensitive key patterns at service layer</li>
+    <li class="check">✓ Teacher/student/admin sensitive fields stripped by service (existing pattern)</li>
+    <li class="check">✓ Test 13 explicitly validates that injected sensitive keys are removed</li>
+  </ul>
+
+  <h2>15–16. Tests</h2>
+  <h3>Backend Integration Tests (15 tests)</h3>
+  <table>
+    <tr><th>#</th><th>Test</th><th>Result</th></tr>
+    <tr><td>1</td><td>Admin receives 200</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>2</td><td>Teacher receives 403</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>3</td><td>Student receives 403</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>4</td><td>Unauthenticated receives 401</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>5</td><td>Student count is correct</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>6</td><td>Teacher count is correct</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>7</td><td>Classroom count is correct</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>8</td><td>Assignment count is correct</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>9</td><td>Submission count is correct</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>10</td><td>Evaluation statistics are correct</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>11</td><td>Activity feed contains real records</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>12</td><td>Alerts correctly calculated</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>13</td><td>No password/hash/token fields returned</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>14</td><td>Empty database returns zeros</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>15</td><td>Database query failures return 500</td><td><span class="badge pass">PASS</span></td></tr>
+  </table>
+
+  <h3>Frontend Tests (10 tests)</h3>
+  <table>
+    <tr><th>#</th><th>Test</th><th>Result</th></tr>
+    <tr><td>16</td><td>Dashboard renders without crashing</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>17</td><td>Loading state shows skeleton elements</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>18</td><td>Error state shows error message and retry button</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>19</td><td>KPI values render from API data</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>20</td><td>Classroom data renders in table</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>21</td><td>Activity feed renders</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>22</td><td>Alerts render</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>23</td><td>Quick actions render navigation buttons</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>24</td><td>Empty states render when no data</td><td><span class="badge pass">PASS</span></td></tr>
+    <tr><td>25</td><td>Greeting section renders</td><td><span class="badge pass">PASS</span></td></tr>
+  </table>
+
+  <h2>17. TypeScript Result</h2>
+  <p><strong>New code introduced:</strong> <span class="badge pass">Zero TypeScript errors</span></p>
+  <p><strong>Pre-existing errors (not introduced by this work):</strong></p>
+  <p><span class="badge warn">18 errors in QuizAssignmentDetailPage.tsx</span> — undeclared names (<code>Skeleton</code>, <code>Card</code>, <code>SearchIcon</code>, etc.) and unused imports. These existed before this implementation. This file was not modified.</p>
+
+  <h2>18. Frontend Build Result</h2>
+  <table>
+    <tr><th>Step</th><th>Result</th></tr>
+    <tr><td><code>tsc -b</code></td><td><span class="badge fail">Fails</span> — only due to 18 pre-existing errors in <code>QuizAssignmentDetailPage.tsx</code></td></tr>
+    <tr><td><code>npx vite build</code></td><td><span class="badge pass">SUCCESS</span> — 11,776 modules transformed, dist output generated</td></tr>
+  </table>
+  <p class="muted">Note: <code>npm run build</code> runs <code>tsc -b &amp;&amp; vite build</code>; vite succeeds; tsc fails only on the pre-existing file.</p>
+
+  <h2>19. Manual E2E Checklist</h2>
+  <table>
+    <tr><th>Step</th><th>Expected</th><th>Backend Verified</th></tr>
+    <tr><td>Admin JWT → GET /admin/dashboard</td><td>200 + full data</td><td><span class="badge pass">PASS (test 1)</span></td></tr>
+    <tr><td>Teacher JWT → GET /admin/dashboard</td><td>403</td><td><span class="badge pass">PASS (test 2)</span></td></tr>
+    <tr><td>Student JWT → GET /admin/dashboard</td><td>403</td><td><span class="badge pass">PASS (test 3)</span></td></tr>
+    <tr><td>No JWT → GET /admin/dashboard</td><td>401</td><td><span class="badge pass">PASS (test 4)</span></td></tr>
+    <tr><td>Student count</td><td>Matches DB</td><td><span class="badge pass">PASS (test 5)</span></td></tr>
+    <tr><td>Teacher count + unassigned</td><td>Matches DB</td><td><span class="badge pass">PASS (test 6)</span></td></tr>
+    <tr><td>Classroom count</td><td>Matches DB</td><td><span class="badge pass">PASS (test 7)</span></td></tr>
+    <tr><td>Assignment count</td><td>Matches DB</td><td><span class="badge pass">PASS (test 8)</span></td></tr>
+    <tr><td>Submission count</td><td>Matches DB</td><td><span class="badge pass">PASS (test 9)</span></td></tr>
+    <tr><td>Evaluation stats (4 statuses)</td><td>Matches DB</td><td><span class="badge pass">PASS (test 10)</span></td></tr>
+    <tr><td>Activity feed (real records)</td><td>Real audit_logs rows</td><td><span class="badge pass">PASS (test 11)</span></td></tr>
+    <tr><td>Alerts (4 types)</td><td>Derived from counts</td><td><span class="badge pass">PASS (test 12)</span></td></tr>
+    <tr><td>No sensitive data in response</td><td>No hashes/tokens</td><td><span class="badge pass">PASS (test 13)</span></td></tr>
+  </table>
+
+  <h2>20. Remaining Issues</h2>
+  <table>
+    <tr><th>Issue</th><th>Severity</th><th>Owner</th></tr>
+    <tr><td>18 pre-existing TypeScript errors in <code>QuizAssignmentDetailPage.tsx</code> (missing imports: <code>Skeleton</code>, <code>Card</code>, <code>CardContent</code>, icon names)</td><td><span class="badge warn">Pre-existing</span></td><td>Separate task</td></tr>
+    <tr><td>Frontend vitest hangs when running multiple test files concurrently on Windows/Node 24 with userEvent-heavy tests (<code>ResetPasswordPage.test.tsx</code>, <code>TeacherRegisterPage.test.tsx</code>)</td><td><span class="badge warn">Pre-existing</span></td><td>Environment/CI config</td></tr>
+    <tr><td>Admin dashboard Classroom list uses LIMIT 20 — pagination not exposed in UI</td><td><span class="badge info">Minor</span></td><td>Future iteration</td></tr>
+  </table>
+
+  <hr class="section-rule" />
+  <p><strong>Summary:</strong> The ClassTrack AI admin dashboard is fully implemented. The backend exposes a single efficient <code>GET /api/v1/admin/dashboard</code> endpoint (admin-only, 401/403 enforced) that aggregates all platform KPIs, classroom details, audit activity, and alert conditions in 3 SQL queries. The frontend dashboard replaces the placeholder stub with a production-grade page using the project's existing notebook visual language: KPI cards, AI evaluation overview, classroom table, activity feed, alerts, and quick actions — all backed by real database data with loading skeletons, error handling, and empty states. 25 new tests (15 backend + 10 frontend) all pass. Existing 1220 backend tests continue passing with 0 failures.</p>
+
+  <footer>Made with IBM Bob</footer>
+</div>
+</body>
+</html>

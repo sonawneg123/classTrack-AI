@@ -3,9 +3,14 @@ import HomePage from "@pages/HomePage";
 import NotFoundPage from "@pages/NotFoundPage";
 import LoginPage from "@pages/auth/LoginPage";
 import StudentRegisterPage from "@pages/auth/StudentRegisterPage";
+import TeacherRegisterPage from "@pages/auth/TeacherRegisterPage";
+import ForgotPasswordPage from "@pages/auth/ForgotPasswordPage";
+import ResetPasswordPage from "@pages/auth/ResetPasswordPage";
+import VerifyEmailPage from "@pages/auth/VerifyEmailPage";
 import UnauthorizedPage from "@pages/UnauthorizedPage";
 import ForbiddenPage from "@pages/ForbiddenPage";
 import AdminDashboardPage from "@pages/admin/DashboardPage";
+import AdminTeachersPage from "@pages/admin/TeachersPage";
 import TeacherDashboardPage from "@pages/teacher/DashboardPage";
 import TeacherClassroomsPage from "@pages/teacher/ClassroomsPage";
 import TeacherTasksPage from "@pages/teacher/TasksPage";
@@ -48,12 +53,18 @@ export default function AppRoutes() {
       <Route path={ROUTES.ROOT} element={<HomePage />} />
       <Route path={ROUTES.LOGIN} element={<LoginPage />} />
       <Route path={ROUTES.STUDENT_REGISTER} element={<StudentRegisterPage />} />
+      <Route path={ROUTES.TEACHER_REGISTER} element={<TeacherRegisterPage />} />
+      <Route path={ROUTES.FORGOT_PASSWORD} element={<ForgotPasswordPage />} />
+      <Route path={ROUTES.RESET_PASSWORD} element={<ResetPasswordPage />} />
+      <Route path={ROUTES.VERIFY_EMAIL} element={<VerifyEmailPage />} />
       <Route path={ROUTES.UNAUTHORIZED} element={<UnauthorizedPage />} />
       <Route path={ROUTES.FORBIDDEN} element={<ForbiddenPage />} />
 
       <Route element={<ProtectedRoute />}>
         <Route element={<RoleRoute allowedRoles={["admin"]} />}>
           <Route path={ROUTES.ADMIN.DASHBOARD} element={<AdminDashboardPage />} />
+          <Route path={ROUTES.ADMIN.TEACHERS} element={<AdminTeachersPage />} />
+          <Route path={ROUTES.ADMIN.REGISTRATION_CODES} element={<AdminTeachersPage />} />
         </Route>
 
         <Route element={<RoleRoute allowedRoles={["teacher"]} />}>

@@ -33,16 +33,23 @@ const studentRegister = {
     name:            Joi.string().min(2).max(100).required().label('Full name'),
     email:           Joi.string().email().max(150).required().label('Email'),
     mobile:          mobileSchema,
+    classCode:       Joi.string().min(4).max(12).required().label('Classroom code'),
     password:        Joi.string().min(8).max(128).required().label('Password'),
     confirmPassword: Joi.string().required().label('Confirm password').valid(Joi.ref('password'))
                        .messages({ 'any.only': 'Passwords do not match.' }),
   }),
 };
 
+/**
+ * Student login: accepts either an email address OR a mobile number.
+ * The `identifier` field is validated as a non-empty string — the service
+ * layer determines whether it looks like an email or a mobile number and
+ * routes the lookup accordingly.
+ */
 const studentLogin = {
   body: Joi.object({
-    email:    Joi.string().email().required().label('Email'),
-    password: Joi.string().min(1).required().label('Password'),
+    identifier: Joi.string().min(1).max(150).required().label('Email or mobile number'),
+    password:   Joi.string().min(1).required().label('Password'),
   }),
 };
 
@@ -84,6 +91,12 @@ const resetPassword = {
   }),
 };
 
+const validateResetToken = {
+  query: Joi.object({
+    token: Joi.string().min(20).required().label('Reset token'),
+  }),
+};
+
 const verifyEmail = {
   body: Joi.object({
     token: Joi.string().min(20).required().label('Verification token'),
@@ -97,7 +110,19 @@ const resendVerification = {
   }),
 };
 
+const teacherRegister = {
+  body: Joi.object({
+    name:            Joi.string().min(2).max(100).required().label('Full name'),
+    email:           Joi.string().email().max(150).required().label('Email'),
+    mobile:          mobileSchema.optional().allow('', null),
+    password:        Joi.string().min(8).max(128).required().label('Password'),
+    confirmPassword: Joi.string().required().label('Confirm password').valid(Joi.ref('password'))
+                       .messages({ 'any.only': 'Passwords do not match.' }),
+    teacherCode:     Joi.string().min(4).max(32).required().label('Teacher registration code'),
+  }),
+};
+
 module.exports = {
-  adminLogin, teacherLogin, studentRegister, studentLogin, changePassword,
-  refreshToken, logout, forgotPassword, resetPassword, verifyEmail, resendVerification,
+  adminLogin, teacherLogin, teacherRegister, studentRegister, studentLogin, changePassword,
+  refreshToken, logout, forgotPassword, resetPassword, validateResetToken, verifyEmail, resendVerification,
 };

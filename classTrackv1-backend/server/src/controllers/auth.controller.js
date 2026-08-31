@@ -33,12 +33,19 @@ const teacherLogin = asyncHandler(async (req, res) => {
   new ApiResponse(200, 'Login successful.', result).send(res);
 });
 
+const teacherRegister = asyncHandler(async (req, res) => {
+  const result = await authService.teacherRegister(req.body);
+  new ApiResponse(201, 'Teacher account created successfully.', result).send(res);
+});
+
 const studentRegister = asyncHandler(async (req, res) => {
   const result = await authService.studentRegister(req.body);
   new ApiResponse(201, 'Account created successfully.', result).send(res);
 });
 
 const studentLogin = asyncHandler(async (req, res) => {
+  // req.body.identifier is the email-or-mobile field from the new validator.
+  // Pass it through directly — the service resolves which field to query.
   const result = await authService.studentLogin({ ...req.body, ..._requestMeta(req) });
   new ApiResponse(200, 'Login successful.', result).send(res);
 });
@@ -85,6 +92,19 @@ const resetPassword = asyncHandler(async (req, res) => {
   new ApiResponse(200, result.message).send(res);
 });
 
+/**
+ * GET /v1/auth/validate-reset-token?token=<rawToken>
+ *
+ * Validates the token and returns the account's name + email so the
+ * reset-password page can display who is resetting their password.
+ * Returns a generic 400 for any invalid/expired/used token.
+ * Never exposes: role, ID, password hash, or the token itself.
+ */
+const validateResetToken = asyncHandler(async (req, res) => {
+  const result = await authService.validateResetToken({ token: req.query.token });
+  new ApiResponse(200, 'Token is valid.', result).send(res);
+});
+
 const verifyEmail = asyncHandler(async (req, res) => {
   const result = await authService.verifyEmail({ token: req.body.token || req.query.token });
   new ApiResponse(200, result.message).send(res);
@@ -101,7 +121,7 @@ const getMe = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  adminLogin, teacherLogin, studentRegister, studentLogin, changeOwnPassword,
-  refresh, logout, logoutAll, forgotPassword, resetPassword, verifyEmail, resendVerification,
+  adminLogin, teacherLogin, teacherRegister, studentRegister, studentLogin, changeOwnPassword,
+  refresh, logout, logoutAll, forgotPassword, resetPassword, validateResetToken, verifyEmail, resendVerification,
   getMe,
 };

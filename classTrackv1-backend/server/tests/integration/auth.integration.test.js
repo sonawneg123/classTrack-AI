@@ -29,7 +29,8 @@ jest.mock('../../src/repositories/teacher.repository', () => ({
 
 jest.mock('../../src/repositories/student.repository', () => ({
   findByUsername: jest.fn(), findById: jest.fn(), existsByUsername: jest.fn(),
-  updateLastLogin: jest.fn(), updatePassword: jest.fn(), create: jest.fn(),
+  findByEmail: jest.fn(), findByMobile: jest.fn(),
+  updateById: jest.fn(), updateLastLogin: jest.fn(), updatePassword: jest.fn(), create: jest.fn(),
   incrementFailedAttempts: jest.fn(), resetFailedAttempts: jest.fn(), lockUntil: jest.fn(),
   isCurrentlyLocked: jest.fn().mockReturnValue(false),
 }));
@@ -74,6 +75,7 @@ const bcrypt  = require('bcryptjs');
 const app = require('../../app');
 
 const teacherRepo = require('../../src/repositories/teacher.repository');
+const studentRepo = require('../../src/repositories/student.repository');
 const refreshTokenRepo = require('../../src/repositories/refreshToken.repository');
 const emailService = require('../../src/services/email.service');
 const { pool } = require('../../src/database/connection');
@@ -227,8 +229,14 @@ describe('Auth API — /api/v1/auth', () => {
 
   // -------------------------------------------------------------------------
   describe('POST /api/v1/auth/forgot-password', () => {
-    it('returns a generic message and sends an email when the account exists', async () => {
+    const adminRepo = require('../../src/repositories/admin.repository');
+    const passwordResetRepo = require('../../src/repositories/passwordResetToken.repository');
+
+    it('returns a generic message and invokes sendPasswordResetEmail for a teacher account', async () => {
+      adminRepo.findByEmail.mockResolvedValue(null);
       teacherRepo.findByEmail.mockResolvedValue({ id: 42, name: 'Ms. Rao', email: 'teacher@classtrack.ai' });
+      passwordResetRepo.invalidateAllForUser.mockResolvedValue(undefined);
+      passwordResetRepo.insert.mockResolvedValue(99);
 
       const res = await request(app)
         .post('/api/v1/auth/forgot-password')
@@ -236,13 +244,106 @@ describe('Auth API — /api/v1/auth', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.message).toMatch(/if an account with that email exists/i);
+
+      // Token was stored before the email was sent
+      expect(passwordResetRepo.invalidateAllForUser).toHaveBeenCalledWith(42, 'teacher');
+      expect(passwordResetRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 42, userRole: 'teacher', tokenHash: expect.any(String), expiresAt: expect.any(Date) })
+      );
+      // NEVER the raw token — only the hash is passed to the repo
+      const insertedHash = passwordResetRepo.insert.mock.calls[0][0].tokenHash;
+      expect(insertedHash).toHaveLength(64); // SHA-256 hex = 64 chars
+
+      // Email was dispatched
       expect(emailService.sendPasswordResetEmail).toHaveBeenCalledTimes(1);
+      expect(emailService.sendPasswordResetEmail).toHaveBeenCalledWith(
+        'teacher@classtrack.ai', 'Ms. Rao', expect.any(String)
+      );
+      // Raw token passed to email must NOT equal the stored hash
+      const rawTokenPassedToEmail = emailService.sendPasswordResetEmail.mock.calls[0][2];
+      expect(rawTokenPassedToEmail).not.toBe(insertedHash);
+    });
+
+    it('returns a generic message and invokes sendPasswordResetEmail for an admin account', async () => {
+      adminRepo.findByEmail.mockResolvedValue({ id: 1, name: 'Super Admin', email: 'admin@classtrack.ai' });
+      passwordResetRepo.invalidateAllForUser.mockResolvedValue(undefined);
+      passwordResetRepo.insert.mockResolvedValue(100);
+
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: 'admin@classtrack.ai' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.message).toMatch(/if an account with that email exists/i);
+      expect(passwordResetRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 1, userRole: 'admin' })
+      );
+      expect(emailService.sendPasswordResetEmail).toHaveBeenCalledTimes(1);
+      // Admin is found first (before teacher lookup) — teacher repo must not be called
+      expect(teacherRepo.findByEmail).not.toHaveBeenCalled();
+    });
+
+    it('returns a generic message and invokes sendPasswordResetEmail for a student account', async () => {
+      adminRepo.findByEmail.mockResolvedValue(null);
+      teacherRepo.findByEmail.mockResolvedValue(null);
+      studentRepo.findByEmail.mockResolvedValue({ id: 2, name: 'Ganesh Sonawne', email: 'sonawneg123@gmail.com' });
+      passwordResetRepo.invalidateAllForUser.mockResolvedValue(undefined);
+      passwordResetRepo.insert.mockResolvedValue(101);
+
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .set('X-Forwarded-For', '10.0.5.1')
+        .send({ email: 'sonawneg123@gmail.com' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.message).toMatch(/if an account with that email exists/i);
+
+      // Token stored with correct role
+      expect(passwordResetRepo.invalidateAllForUser).toHaveBeenCalledWith(2, 'student');
+      expect(passwordResetRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 2, userRole: 'student', tokenHash: expect.any(String), expiresAt: expect.any(Date) })
+      );
+      // SHA-256 hash stored (64 hex chars), never the raw token
+      const insertedHash = passwordResetRepo.insert.mock.calls[0][0].tokenHash;
+      expect(insertedHash).toHaveLength(64);
+
+      // Email dispatched with student's email and name
+      expect(emailService.sendPasswordResetEmail).toHaveBeenCalledTimes(1);
+      expect(emailService.sendPasswordResetEmail).toHaveBeenCalledWith(
+        'sonawneg123@gmail.com', 'Ganesh Sonawne', expect.any(String)
+      );
+      // Raw token passed to email != stored hash
+      const rawTokenPassedToEmail = emailService.sendPasswordResetEmail.mock.calls[0][2];
+      expect(rawTokenPassedToEmail).not.toBe(insertedHash);
+    });
+
+    it('resolves student email after case-normalization and whitespace trimming', async () => {
+      adminRepo.findByEmail.mockResolvedValue(null);
+      teacherRepo.findByEmail.mockResolvedValue(null);
+      // studentRepo.findByEmail is called with the normalized (lower-trimmed) value
+      studentRepo.findByEmail.mockResolvedValue({ id: 2, name: 'Ganesh Sonawne', email: 'sonawneg123@gmail.com' });
+      passwordResetRepo.invalidateAllForUser.mockResolvedValue(undefined);
+      passwordResetRepo.insert.mockResolvedValue(101);
+
+      // The validator strips whitespace and normalises inside Joi; the service
+      // also trims+lowercases before forwarding to the repo's findByEmail.
+      // A mixed-case input still finds the student account.
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .set('X-Forwarded-For', '10.0.6.1')
+        .send({ email: 'SONAWNEG123@GMAIL.COM' });
+
+      expect(res.status).toBe(200);
+      expect(emailService.sendPasswordResetEmail).toHaveBeenCalledTimes(1);
+      expect(passwordResetRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 2, userRole: 'student' })
+      );
     });
 
     it('returns the SAME generic message when the account does not exist (no enumeration)', async () => {
-      const adminRepo = require('../../src/repositories/admin.repository');
       adminRepo.findByEmail.mockResolvedValue(null);
       teacherRepo.findByEmail.mockResolvedValue(null);
+      studentRepo.findByEmail.mockResolvedValue(null);
 
       const res = await request(app)
         .post('/api/v1/auth/forgot-password')
@@ -251,6 +352,107 @@ describe('Auth API — /api/v1/auth', () => {
       expect(res.status).toBe(200);
       expect(res.body.message).toMatch(/if an account with that email exists/i);
       expect(emailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+      expect(passwordResetRepo.insert).not.toHaveBeenCalled();
+    });
+
+    // NOTE: the forgotPasswordLimiter allows 5 requests per hour per IP.
+    // Tests that need to exceed that use a distinct X-Forwarded-For IP so
+    // the rate-limit counter is isolated from the other tests in this suite.
+
+    it('returns 200 even when sendPasswordResetEmail throws (error is swallowed to prevent information leakage)', async () => {
+      adminRepo.findByEmail.mockResolvedValue(null);
+      teacherRepo.findByEmail.mockResolvedValue({ id: 42, name: 'Ms. Rao', email: 'teacher@classtrack.ai' });
+      passwordResetRepo.invalidateAllForUser.mockResolvedValue(undefined);
+      passwordResetRepo.insert.mockResolvedValue(99);
+      emailService.sendPasswordResetEmail.mockRejectedValue(new Error('SMTP unavailable'));
+
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .set('X-Forwarded-For', '10.0.1.1')
+        .send({ email: 'teacher@classtrack.ai' });
+
+      // Must still return 200 — email failures must never propagate to the client
+      expect(res.status).toBe(200);
+      expect(res.body.message).toMatch(/if an account with that email exists/i);
+    });
+
+    it('returns 200 even when student SMTP throws (SMTP failure preserves non-enumerable behavior)', async () => {
+      adminRepo.findByEmail.mockResolvedValue(null);
+      teacherRepo.findByEmail.mockResolvedValue(null);
+      studentRepo.findByEmail.mockResolvedValue({ id: 2, name: 'Ganesh Sonawne', email: 'sonawneg123@gmail.com' });
+      passwordResetRepo.invalidateAllForUser.mockResolvedValue(undefined);
+      passwordResetRepo.insert.mockResolvedValue(101);
+      emailService.sendPasswordResetEmail.mockRejectedValue(new Error('SMTP unavailable'));
+
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .set('X-Forwarded-For', '10.0.7.1')
+        .send({ email: 'sonawneg123@gmail.com' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.message).toMatch(/if an account with that email exists/i);
+    });
+
+    it('rejects a missing email field with 400', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .set('X-Forwarded-For', '10.0.2.1')
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('rejects an invalid email format with 400', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .set('X-Forwarded-For', '10.0.3.1')
+        .send({ email: 'not-an-email' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('stores a SHA-256 token hash (not the raw token) in the database', async () => {
+      adminRepo.findByEmail.mockResolvedValue(null);
+      teacherRepo.findByEmail.mockResolvedValue({ id: 42, name: 'Ms. Rao', email: 'teacher@classtrack.ai' });
+      passwordResetRepo.invalidateAllForUser.mockResolvedValue(undefined);
+      passwordResetRepo.insert.mockResolvedValue(99);
+
+      await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .set('X-Forwarded-For', '10.0.4.1')
+        .send({ email: 'teacher@classtrack.ai' });
+
+      const storedHash = passwordResetRepo.insert.mock.calls[0][0].tokenHash;
+      const rawToken   = emailService.sendPasswordResetEmail.mock.calls[0][2];
+
+      // The stored value must be the SHA-256 hex hash of the raw token
+      const { createHash } = require('crypto');
+      expect(storedHash).toBe(createHash('sha256').update(rawToken).digest('hex'));
+      // Raw token and stored hash must be different strings
+      expect(rawToken).not.toBe(storedHash);
+    });
+
+    it('stores SHA-256 hash (not raw token) in the database for a student account', async () => {
+      adminRepo.findByEmail.mockResolvedValue(null);
+      teacherRepo.findByEmail.mockResolvedValue(null);
+      studentRepo.findByEmail.mockResolvedValue({ id: 2, name: 'Ganesh Sonawne', email: 'sonawneg123@gmail.com' });
+      passwordResetRepo.invalidateAllForUser.mockResolvedValue(undefined);
+      passwordResetRepo.insert.mockResolvedValue(101);
+
+      await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .set('X-Forwarded-For', '10.0.8.1')
+        .send({ email: 'sonawneg123@gmail.com' });
+
+      const storedHash = passwordResetRepo.insert.mock.calls[0][0].tokenHash;
+      const rawToken   = emailService.sendPasswordResetEmail.mock.calls[0][2];
+
+      const { createHash } = require('crypto');
+      expect(storedHash).toBe(createHash('sha256').update(rawToken).digest('hex'));
+      expect(rawToken).not.toBe(storedHash);
+      expect(storedHash).toHaveLength(64); // SHA-256 hex
     });
   });
 

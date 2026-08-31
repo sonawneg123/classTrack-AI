@@ -36,6 +36,7 @@ const auditRepo    = require('../repositories/audit.repository');
 const loginHistoryRepo = require('../repositories/loginHistory.repository');
 const emailVerificationRepo = require('../repositories/emailVerificationToken.repository');
 const passwordResetRepo = require('../repositories/passwordResetToken.repository');
+const teacherRegCodeRepo = require('../repositories/teacherRegistrationCode.repository');
 
 const REPO_BY_ROLE = { admin: adminRepo, teacher: teacherRepo, student: studentRepo };
 
@@ -151,10 +152,28 @@ async function teacherLogin({ email, password, ipAddress, userAgent }) {
 }
 
 // --------------------------------------------------------------------------
-// Student register (P1 — email + mobile + name + password)
+// Student register (classroom code required — links student to classroom)
 // --------------------------------------------------------------------------
-async function studentRegister({ name, email, mobile, password }) {
+async function studentRegister({ name, email, mobile, classCode, password }) {
   _assertPasswordStrength(password);
+
+  // --- Classroom code validation (mandatory for new registrations) ----------
+  // The classCode field is always required.  The backend must validate it
+  // exists and that the classroom is active/usable before creating the account.
+  if (!classCode || !classCode.trim()) {
+    throw ApiError.badRequest('A classroom code is required to register as a student.');
+  }
+
+  const classroom = await classroomRepo.findByCode(classCode.trim().toUpperCase());
+  if (!classroom) {
+    throw ApiError.notFound('Invalid classroom code. Please check with your teacher.');
+  }
+  if (classroom.deleted_at) {
+    throw ApiError.badRequest('That classroom is no longer available. Please check with your teacher.');
+  }
+  if (!classroom.is_active) {
+    throw ApiError.badRequest('That classroom is currently inactive. Please check with your teacher.');
+  }
 
   const normalizedEmail  = email.trim().toLowerCase();
   const normalizedMobile = normalizeMobile(mobile);
@@ -183,19 +202,21 @@ async function studentRegister({ name, email, mobile, password }) {
     name:          name.trim(),
     email:         normalizedEmail,
     mobile_number: normalizedMobile,
+    classroom_id:  classroom.id,
     password_hash: passwordHash,
   });
 
   await auditRepo.insert({
     actorType: 'student', actorId: id,
     action: 'student_registered',
+    details: { classroomId: classroom.id },
   });
 
   const { accessToken, refreshToken, permissions } = await tokenService.issueTokenPair(
     { id, role: 'student', name: name.trim() }
   );
 
-  logger.info('Student registered', { studentId: id });
+  logger.info('Student registered', { studentId: id, classroomId: classroom.id });
   return {
     token: accessToken, accessToken, refreshToken, permissions,
     user: { id, email: normalizedEmail, name: name.trim(), role: 'student' },
@@ -203,11 +224,27 @@ async function studentRegister({ name, email, mobile, password }) {
 }
 
 // --------------------------------------------------------------------------
-// Student login (email + password — P1 registration flow)
+// Student login (email OR mobile + password)
 // --------------------------------------------------------------------------
-async function studentLogin({ email, password, ipAddress, userAgent }) {
-  const identifier = email.trim().toLowerCase();
-  const student = await studentRepo.findByEmail(identifier);
+async function studentLogin({ identifier: rawIdentifier, password, ipAddress, userAgent }) {
+  const raw = rawIdentifier.trim();
+
+  // Determine whether the identifier looks like an email or a mobile number.
+  // Email detection: contains '@'.
+  // Mobile: everything else — normalize to E.164 before lookup.
+  const isEmail = raw.includes('@');
+  let identifier;
+  let student;
+
+  if (isEmail) {
+    identifier = raw.toLowerCase();
+    student = await studentRepo.findByEmail(identifier);
+  } else {
+    // Normalize the mobile number to E.164 before lookup so formats like
+    // "09876543210" and "+919876543210" both match the stored value.
+    identifier = normalizeMobile(raw);
+    student = await studentRepo.findByMobile(identifier);
+  }
 
   if (student && studentRepo.isCurrentlyLocked(student)) {
     await loginHistoryRepo.record({ userId: student.id, userRole: 'student', identifier, success: false, failureReason: 'account_locked', ipAddress, userAgent });
@@ -220,7 +257,7 @@ async function studentLogin({ email, password, ipAddress, userAgent }) {
       failureReason: !student ? 'invalid_credentials' : (!student.is_active ? 'account_disabled' : 'invalid_credentials'),
       ipAddress, userAgent,
     });
-    throw ApiError.unauthorized('Invalid email or password.');
+    throw ApiError.unauthorized('Invalid email/mobile or password.');
   }
 
   await _recordSuccessfulAttempt({ repo: studentRepo, account: student, role: 'student', identifier, ipAddress, userAgent });
@@ -337,22 +374,62 @@ async function resendVerificationEmail({ email, role }) {
 async function forgotPassword({ email }) {
   const genericResult = { message: 'If an account with that email exists, a password reset link has been sent.' };
 
+  logger.debug('[forgotPassword] lookup started', { emailDomain: email.split('@')[1] || null });
+
   let account = null;
   let role = null;
-  for (const [candidateRole, repo] of Object.entries({ admin: adminRepo, teacher: teacherRepo })) {
+  for (const [candidateRole, repo] of Object.entries({ admin: adminRepo, teacher: teacherRepo, student: studentRepo })) {
     const found = await repo.findByEmail(email);
     if (found) { account = found; role = candidateRole; break; }
   }
 
-  if (!account) return genericResult; // don't leak whether the email exists
+  if (!account) {
+    logger.debug('[forgotPassword] no account found — returning generic response (non-enumerable)');
+    return genericResult; // don't leak whether the email exists
+  }
+
+  // NEVER log account.email or account.name directly — log safe fields only.
+  logger.debug('[forgotPassword] account located', { role, accountId: account.id, hasEmail: Boolean(account.email) });
 
   const rawToken = generateRawToken(32);
+  // NEVER log rawToken.
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = minutesFromNow(config.auth.passwordResetExpiresInMinutes);
+
+  logger.debug('[forgotPassword] invalidating prior tokens', { role, accountId: account.id });
   await passwordResetRepo.invalidateAllForUser(account.id, role);
-  await passwordResetRepo.insert({
-    userId: account.id, userRole: role, tokenHash: hashToken(rawToken),
-    expiresAt: minutesFromNow(config.auth.passwordResetExpiresInMinutes),
+
+  logger.debug('[forgotPassword] inserting new reset token', {
+    role,
+    accountId: account.id,
+    expiresAt: expiresAt.toISOString(),
+    tokenHashPrefix: tokenHash.slice(0, 8), // first 8 hex chars only — safe for correlation
   });
-  await emailService.sendPasswordResetEmail(account.email, account.name, rawToken);
+  const tokenId = await passwordResetRepo.insert({
+    userId: account.id, userRole: role, tokenHash,
+    expiresAt,
+  });
+  logger.debug('[forgotPassword] token row inserted', { role, accountId: account.id, tokenId });
+
+  logger.debug('[forgotPassword] calling sendPasswordResetEmail', {
+    role,
+    accountId: account.id,
+    clientUrl: config.server.clientUrl,
+    // NEVER log toEmail (account.email) at debug level in production — it stays in audit log only
+  });
+  try {
+    await emailService.sendPasswordResetEmail(account.email, account.name, rawToken);
+    logger.debug('[forgotPassword] sendPasswordResetEmail returned', { role, accountId: account.id });
+  } catch (emailErr) {
+    // Email delivery failures must never propagate to the caller — the token
+    // is already persisted, and the user can request a new link. Log loudly
+    // so the failure is observable in the application logs.
+    logger.error('[forgotPassword] sendPasswordResetEmail threw unexpectedly', {
+      role, accountId: account.id,
+      errorCode:    emailErr.code    || null,
+      errorMessage: emailErr.message || String(emailErr),
+    });
+  }
 
   await auditRepo.insert({ actorType: role, actorId: account.id, action: 'password_reset_requested' });
   logger.info('Password reset requested', { role, accountId: account.id });
@@ -378,11 +455,110 @@ async function resetPassword({ token, newPassword }) {
   return { message: 'Password reset successfully. Please log in with your new password.' };
 }
 
+/**
+ * Validates a raw reset token and returns safe account information so the
+ * frontend can display "who is resetting their password" without putting
+ * identity information in the URL.
+ *
+ * Returns ONLY name and email — never password_hash, role, internal IDs,
+ * or the token itself.
+ *
+ * A generic 400 is thrown for any invalid/expired/used token so the
+ * response is indistinguishable between the three cases (no enumeration).
+ */
+async function validateResetToken({ token }) {
+  const record = await passwordResetRepo.findValidByHash(hashToken(token));
+  if (!record) throw ApiError.badRequest('This password reset link is invalid or has expired.');
+
+  const repo = REPO_BY_ROLE[record.user_role];
+  const account = await repo.findById(record.user_id);
+  if (!account || !account.is_active) {
+    // Account was deleted or disabled after the token was issued — treat as invalid.
+    throw ApiError.badRequest('This password reset link is invalid or has expired.');
+  }
+
+  // Return only the safe display fields — never role, ID, hash, or token.
+  return {
+    name:  account.name  || null,
+    email: account.email || null,
+  };
+}
+
+// --------------------------------------------------------------------------
+// Teacher self-registration (requires a valid teacher registration code)
+// --------------------------------------------------------------------------
+async function teacherRegister({ name, email, mobile, password, teacherCode }) {
+  _assertPasswordStrength(password);
+
+  if (!teacherCode || !teacherCode.trim()) {
+    throw ApiError.badRequest('A teacher registration code is required.');
+  }
+
+  // Validate the teacher registration code FIRST (before any DB writes)
+  // to avoid wasted work if the code is invalid.
+  // Strip the display-format dash (ABCD-1234 → ABCD1234) before hashing —
+  // the stored hash was computed from the raw 8-char code without the dash.
+  const rawCodeInput = teacherCode.trim().replace(/-/g, '').toUpperCase();
+  const codeHash = hashToken(rawCodeInput);
+  const codeRecord = await teacherRegCodeRepo.findValidByHash(codeHash);
+  if (!codeRecord) {
+    // Generic message — does not reveal whether the code was expired, revoked, used, or never existed.
+    throw ApiError.badRequest('Unable to create the teacher account. Please verify your registration details and teacher code.');
+  }
+
+  const normalizedEmail  = email.trim().toLowerCase();
+  const normalizedMobile = mobile ? normalizeMobile(mobile) : null;
+
+  // Duplicate email/mobile detection — same generic message to prevent enumeration
+  if (await teacherRepo.existsByEmail(normalizedEmail)) {
+    throw ApiError.conflict('Unable to create the teacher account. Please verify your registration details and teacher code.');
+  }
+  if (normalizedMobile && await teacherRepo.existsByMobile(normalizedMobile)) {
+    throw ApiError.conflict('Unable to create the teacher account. Please verify your registration details and teacher code.');
+  }
+
+  const passwordHash = await _hashPassword(password);
+
+  // Role is ALWAYS 'teacher' — never trusted from client input
+  const id = await teacherRepo.create({
+    name:          name.trim(),
+    email:         normalizedEmail,
+    mobile_number: normalizedMobile,
+    password_hash: passwordHash,
+    created_by:    null, // self-registered, no admin created_by
+  });
+
+  // Consume the code atomically after account creation
+  await teacherRegCodeRepo.markUsed(codeRecord.id, id);
+
+  // Audit log — NEVER log raw password, code, or hash
+  await auditRepo.insert({
+    actorType: 'teacher', actorId: id,
+    action: 'teacher_self_registered',
+    details: { name: name.trim() },
+  });
+
+  // Fire-and-forget email verification (if REQUIRE_EMAIL_VERIFICATION is set,
+  // the teacher must verify before logging in — same as admin-created teachers)
+  issueEmailVerificationToken({ userId: id, role: 'teacher', email: normalizedEmail, name: name.trim() })
+    .catch((err) => logger.warn('Could not send teacher registration verification email', { teacherId: id, error: err.message }));
+
+  const { accessToken, refreshToken, permissions } = await tokenService.issueTokenPair(
+    { id, role: 'teacher', name: name.trim() }
+  );
+
+  logger.info('Teacher self-registered', { teacherId: id });
+  return {
+    token: accessToken, accessToken, refreshToken, permissions,
+    user: { id, email: normalizedEmail, name: name.trim(), role: 'teacher' },
+  };
+}
+
 module.exports = {
-  adminLogin, teacherLogin, studentRegister, studentLogin, changeOwnPassword,
+  adminLogin, teacherLogin, teacherRegister, studentRegister, studentLogin, changeOwnPassword,
   refreshSession, logout, logoutAllSessions,
   issueEmailVerificationToken, verifyEmail, resendVerificationEmail,
-  forgotPassword, resetPassword,
+  forgotPassword, resetPassword, validateResetToken,
   getMe,
 };
 

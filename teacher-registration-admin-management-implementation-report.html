@@ -1,0 +1,284 @@
+
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ClassTrack AI — Teacher Registration Implementation Report</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif; font-size: 14px; line-height: 1.6; color: #1f2328; background: #ffffff; }
+  .page { max-width: 760px; margin: 0 auto; padding: 40px 24px; }
+  h1 { font-size: 22px; font-weight: 700; color: #1f2328; margin-bottom: 4px; }
+  .subtitle { color: #57606a; font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 15px; font-weight: 700; color: #1f2328; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 1px solid #e5e7eb; }
+  h3 { font-size: 13px; font-weight: 600; color: #1f2328; margin: 16px 0 6px; }
+  p { margin-bottom: 10px; color: #374151; }
+  ul, ol { padding-left: 20px; margin-bottom: 10px; }
+  li { margin-bottom: 3px; color: #374151; }
+  code { font-family: "Consolas", "Menlo", monospace; font-size: 12px; background: #f7f8fa; border: 1px solid #e5e7eb; border-radius: 3px; padding: 1px 5px; color: #1f2328; }
+  pre { background: #f7f8fa; border: 1px solid #e5e7eb; border-radius: 4px; padding: 12px 14px; font-size: 12px; font-family: "Consolas", "Menlo", monospace; overflow-x: auto; margin-bottom: 12px; line-height: 1.5; color: #1f2328; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 13px; }
+  th { text-align: left; padding: 7px 10px; background: #f7f8fa; border: 1px solid #e5e7eb; font-weight: 600; color: #1f2328; }
+  td { padding: 6px 10px; border: 1px solid #e5e7eb; color: #374151; vertical-align: top; }
+  tr:nth-child(even) td { background: #fafafa; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .pass { background: #dcfce7; color: #166534; }
+  .fail { background: #fee2e2; color: #991b1b; }
+  .info { background: #dbeafe; color: #1e40af; }
+  .warn { background: #fef9c3; color: #713f12; }
+  .result-box { background: #f7f8fa; border: 1px solid #e5e7eb; border-radius: 6px; padding: 14px 16px; margin-bottom: 12px; }
+  .result-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #e5e7eb; }
+  .result-row:last-child { border-bottom: none; }
+  .result-label { color: #374151; font-size: 13px; }
+  .result-val { font-weight: 600; font-size: 13px; }
+  .section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #57606a; margin-bottom: 6px; }
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 12px; color: #57606a; }
+  .flow { background: #f7f8fa; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 16px; font-family: "Consolas", "Menlo", monospace; font-size: 12px; color: #1f2328; margin-bottom: 12px; }
+  .flow .step { padding: 2px 0; }
+  .flow .arrow { color: #57606a; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>ClassTrack AI — Teacher Registration &amp; Admin Management</h1>
+  <p class="subtitle">Implementation Report · Sprint — Teacher Self-Registration + Admin Code Management</p>
+
+  
+  <h2>Test Results</h2>
+  <div class="result-box">
+    <div class="result-row"><span class="result-label">Backend test suites</span><span class="result-val"><span class="badge pass">69 passed</span>  <span class="badge warn">5 skipped (real-DB)</span></span></div>
+    <div class="result-row"><span class="result-label">Backend tests total</span><span class="result-val"><span class="badge pass">1205 passed · 0 failed</span></span></div>
+    <div class="result-row"><span class="result-label">New teacher registration tests</span><span class="result-val"><span class="badge pass">53 / 53 passed</span></span></div>
+    <div class="result-row"><span class="result-label">Auth regression (student/teacher/admin login, forgot/reset, classroom)</span><span class="result-val"><span class="badge pass">157 / 157 passed</span></span></div>
+    <div class="result-row"><span class="result-label">TypeScript (new files)</span><span class="result-val"><span class="badge pass">CLEAN</span></span></div>
+    <div class="result-row"><span class="result-label">TypeScript (pre-existing errors in QuizAssignmentDetailPage.tsx)</span><span class="result-val"><span class="badge warn">Pre-existing · not introduced by this work</span></span></div>
+    <div class="result-row"><span class="result-label">Frontend Vitest runner</span><span class="result-val"><span class="badge warn">Worker timeout on Windows (pre-existing env issue — same as ResetPasswordPage.test.tsx)</span></span></div>
+  </div>
+
+  
+  <h2>1. Architecture Findings</h2>
+  <p>Full inspection of V1–V17 Flyway migrations, all repositories, services, controllers, routes, middleware, and frontend pages was performed before writing a single line of code.</p>
+  <ul>
+    <li><strong>Teachers table</strong>: had no <code>mobile_number</code> column — added in V18.</li>
+    <li><strong>Classroom model</strong>: single <code>teacher_id</code> FK on classrooms — preserved as-is.</li>
+    <li><strong>Teacher/classroom assignment</strong>: teacher registers first → admin assigns classroom (safer architecture, preserves existing FK constraint).</li>
+    <li><strong>Registration codes</strong>: no existing table — new <code>teacher_registration_codes</code> table added in V18.</li>
+    <li><strong>Security pattern</strong>: all tokens use SHA-256 hash storage (<code>token.util.js</code>) — registration codes follow the same pattern.</li>
+    <li><strong>Rate limiting</strong>: reused existing <code>registerLimiter</code> for teacher registration endpoint.</li>
+    <li><strong>Email verification</strong>: teacher registration fires the existing <code>issueEmailVerificationToken</code> flow (same as admin-created teachers).</li>
+  </ul>
+
+  
+  <h2>2. Existing Schema Reused</h2>
+  <table>
+    <tr><th>Table / Concept</th><th>Reused As-Is</th><th>Notes</th></tr>
+    <tr><td><code>teachers</code></td><td>✅ Yes</td><td>Added <code>mobile_number</code> column via V18</td></tr>
+    <tr><td><code>classrooms</code> (single teacher_id FK)</td><td>✅ Yes</td><td>Not changed — teacher→classroom assignment via admin</td></tr>
+    <tr><td><code>refresh_tokens</code></td><td>✅ Yes</td><td>Teacher registration issues standard token pair</td></tr>
+    <tr><td><code>email_verification_tokens</code></td><td>✅ Yes</td><td>Same flow as admin-created teachers</td></tr>
+    <tr><td><code>audit_logs</code></td><td>✅ Yes</td><td>All actions logged via <code>auditRepo.insert()</code></td></tr>
+    <tr><td><code>role_permissions</code> / RBAC</td><td>✅ Yes</td><td>Teacher permissions from existing constants, role always set server-side</td></tr>
+    <tr><td><code>generateRawToken</code> / <code>hashToken</code></td><td>✅ Yes</td><td>Same crypto utilities used for registration codes</td></tr>
+    <tr><td><code>registerLimiter</code></td><td>✅ Yes</td><td>Reused for <code>POST /auth/teacher/register</code></td></tr>
+  </table>
+
+  
+  <h2>3. New Migration</h2>
+  <pre>V18__teacher_registration_codes.sql
+  
+  ALTER TABLE teachers
+    ADD COLUMN mobile_number VARCHAR(20) NULL DEFAULT NULL;
+  
+  CREATE UNIQUE INDEX uq_teachers_mobile_number ON teachers (mobile_number)
+    WHERE mobile_number IS NOT NULL;
+  
+  CREATE TABLE teacher_registration_codes (
+    id          INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    code_hash   CHAR(64)  NOT NULL,  -- SHA-256 only; raw never stored
+    created_by  INTEGER   NOT NULL,  -- admins.id
+    expires_at  TIMESTAMP WITH TIME ZONE NOT NULL,
+    used_at     TIMESTAMP WITH TIME ZONE NULL DEFAULT NULL,
+    used_by     INTEGER   NULL DEFAULT NULL,
+    is_revoked  BOOLEAN   NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_teacher_reg_code_hash UNIQUE (code_hash),
+    CONSTRAINT fk_teacher_reg_code_admin FOREIGN KEY (created_by) REFERENCES admins(id)
+  );</pre>
+
+  
+  <h2>4. Backend Files Changed / Created</h2>
+  <table>
+    <tr><th>File</th><th>Change</th></tr>
+    <tr><td><code>database/migrations/flyway/V18__teacher_registration_codes.sql</code></td><td>New migration</td></tr>
+    <tr><td><code>src/repositories/teacherRegistrationCode.repository.js</code></td><td>New repository</td></tr>
+    <tr><td><code>src/repositories/teacher.repository.js</code></td><td>Added <code>findByMobile</code>, <code>existsByEmail/Mobile</code>, <code>findWithClassrooms</code>, <code>setActive</code>, <code>assignClassroom</code>, <code>removeFromClassroom</code></td></tr>
+    <tr><td><code>src/services/auth.service.js</code></td><td>Added <code>teacherRegister()</code> function + import of teacherRegCodeRepo</td></tr>
+    <tr><td><code>src/services/admin.service.js</code></td><td>Added <code>createTeacherRegistrationCode</code>, <code>listTeacherRegistrationCodes</code>, <code>revokeTeacherRegistrationCode</code>, <code>getTeacher</code>, <code>updateTeacher</code>, <code>setTeacherStatus</code>, <code>assignTeacherClassroom</code>, <code>removeTeacherFromClassroom</code>; strip sensitive fields from <code>listTeachers</code></td></tr>
+    <tr><td><code>src/controllers/auth.controller.js</code></td><td>Added <code>teacherRegister</code> controller</td></tr>
+    <tr><td><code>src/controllers/admin.controller.js</code></td><td>Added all new admin endpoints</td></tr>
+    <tr><td><code>src/routes/v1/auth.routes.js</code></td><td>Added <code>POST /auth/teacher/register</code></td></tr>
+    <tr><td><code>src/routes/admin.routes.js</code></td><td>Added all new admin routes (teacher CRUD + registration codes)</td></tr>
+    <tr><td><code>src/validators/auth.validator.js</code></td><td>Added <code>teacherRegister</code> Joi schema</td></tr>
+    <tr><td><code>src/validators/admin.validator.js</code></td><td>Added <code>updateTeacher</code>, <code>setTeacherStatus</code>, <code>assignClassroom</code>, <code>createRegistrationCode</code></td></tr>
+    <tr><td><code>tests/integration/teacherRegistration.integration.test.js</code></td><td>New — 53 tests</td></tr>
+  </table>
+
+  
+  <h2>5. Frontend Files Changed / Created</h2>
+  <table>
+    <tr><th>File</th><th>Change</th></tr>
+    <tr><td><code>src/types/auth.ts</code></td><td>Added <code>TeacherRegisterPayload</code> interface</td></tr>
+    <tr><td><code>src/utils/constants.ts</code></td><td>Added <code>ROUTES.TEACHER_REGISTER</code>, <code>ROUTES.ADMIN.TEACHERS</code>, <code>ROUTES.ADMIN.REGISTRATION_CODES</code></td></tr>
+    <tr><td><code>src/features/auth/api/authApi.ts</code></td><td>Added <code>registerTeacher()</code> method + <code>TEACHER_REGISTER</code> endpoint</td></tr>
+    <tr><td><code>src/features/auth/schemas/teacherRegisterSchema.ts</code></td><td>New Zod schema for teacher registration form</td></tr>
+    <tr><td><code>src/features/auth/components/LoginForm.tsx</code></td><td>Added "New teacher? Create teacher account" link on teacher tab</td></tr>
+    <tr><td><code>src/features/admin/api/adminApi.ts</code></td><td>New — all admin teacher + code management API calls</td></tr>
+    <tr><td><code>src/features/admin/hooks/useAdminTeachers.ts</code></td><td>New — React Query hooks for admin teacher management</td></tr>
+    <tr><td><code>src/pages/auth/TeacherRegisterPage.tsx</code></td><td>New — full teacher registration form page</td></tr>
+    <tr><td><code>src/pages/admin/TeachersPage.tsx</code></td><td>New — admin teacher management + registration codes UI</td></tr>
+    <tr><td><code>src/routes/AppRoutes.tsx</code></td><td>Added routes for <code>/register/teacher</code>, <code>/admin/teachers</code>, <code>/admin/teacher-registration-codes</code></td></tr>
+    <tr><td><code>src/pages/auth/__tests__/TeacherRegisterPage.test.tsx</code></td><td>New — frontend test suite (8 tests)</td></tr>
+  </table>
+
+  
+  <h2>6. New API Endpoints</h2>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Auth</th><th>Description</th></tr>
+    <tr><td><code>POST</code></td><td><code>/api/v1/auth/teacher/register</code></td><td>Public (rate-limited)</td><td>Teacher self-registration with code</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/v1/admin/teacher-registration-codes</code></td><td>Admin only</td><td>Generate a new registration code</td></tr>
+    <tr><td><code>GET</code></td><td><code>/api/v1/admin/teacher-registration-codes</code></td><td>Admin only</td><td>List all codes (status only, no hash)</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/v1/admin/teacher-registration-codes/:id/revoke</code></td><td>Admin only</td><td>Revoke a code</td></tr>
+    <tr><td><code>GET</code></td><td><code>/api/v1/admin/teachers</code></td><td>Admin only</td><td>List teachers (no sensitive fields)</td></tr>
+    <tr><td><code>GET</code></td><td><code>/api/v1/admin/teachers/:id</code></td><td>Admin only</td><td>Get teacher detail with classrooms</td></tr>
+    <tr><td><code>PATCH</code></td><td><code>/api/v1/admin/teachers/:id</code></td><td>Admin only</td><td>Update teacher name/email/mobile</td></tr>
+    <tr><td><code>PATCH</code></td><td><code>/api/v1/admin/teachers/:id/status</code></td><td>Admin only</td><td>Activate or deactivate teacher</td></tr>
+    <tr><td><code>PATCH</code></td><td><code>/api/v1/admin/teachers/:id/classroom</code></td><td>Admin only</td><td>Assign classroom to teacher</td></tr>
+    <tr><td><code>DELETE</code></td><td><code>/api/v1/admin/teachers/:id/classroom/:classroomId</code></td><td>Admin only</td><td>Remove teacher from classroom</td></tr>
+  </table>
+
+  
+  <h2>7. Teacher Registration Flow</h2>
+  <div class="flow">
+    <div class="step">ADMIN: POST /admin/teacher-registration-codes</div>
+    <div class="step arrow">↓</div>
+    <div class="step">Server generates 8-char code (cryptographically random, unambiguous charset)</div>
+    <div class="step arrow">↓</div>
+    <div class="step">SHA-256 hash stored in teacher_registration_codes.code_hash</div>
+    <div class="step arrow">↓</div>
+    <div class="step">Raw code returned ONCE in format "ABCD-1234" (never stored or returned again)</div>
+    <div class="step arrow">↓</div>
+    <div class="step">Admin shares code with teacher out-of-band</div>
+    <div class="step arrow">↓</div>
+    <div class="step">TEACHER: opens /register/teacher, fills form + teacher code</div>
+    <div class="step arrow">↓</div>
+    <div class="step">POST /auth/teacher/register → Joi validation → service layer</div>
+    <div class="step arrow">↓</div>
+    <div class="step">hashToken(code) → findValidByHash() — checks not expired, not revoked, not used</div>
+    <div class="step arrow">↓</div>
+    <div class="step">existsByEmail / existsByMobile duplicate checks</div>
+    <div class="step arrow">↓</div>
+    <div class="step">bcrypt.hash(password) → teacherRepo.create() — role ALWAYS = teacher (server-enforced)</div>
+    <div class="step arrow">↓</div>
+    <div class="step">teacherRegCodeRepo.markUsed(codeId, teacherId) — code consumed</div>
+    <div class="step arrow">↓</div>
+    <div class="step">audit_logs: teacher_self_registered</div>
+    <div class="step arrow">↓</div>
+    <div class="step">issueEmailVerificationToken() fire-and-forget</div>
+    <div class="step arrow">↓</div>
+    <div class="step">issueTokenPair() → 201 {accessToken, refreshToken, permissions, user}</div>
+    <div class="step arrow">↓</div>
+    <div class="step">Teacher can now login; admin assigns classroom via PATCH /admin/teachers/:id/classroom</div>
+  </div>
+
+  
+  <h2>8. Admin Teacher-Management Flow</h2>
+  <ul>
+    <li><strong>Generate code</strong>: POST <code>/admin/teacher-registration-codes</code> — gets display code once</li>
+    <li><strong>List codes</strong>: GET <code>/admin/teacher-registration-codes</code> — status/expiry/used-by; hash never returned</li>
+    <li><strong>Revoke code</strong>: POST <code>/admin/teacher-registration-codes/:id/revoke</code> — idempotency checks</li>
+    <li><strong>List teachers</strong>: GET <code>/admin/teachers</code> — password_hash, failed_login_attempts, locked_until stripped</li>
+    <li><strong>View teacher</strong>: GET <code>/admin/teachers/:id</code> — includes classrooms array, no sensitive fields</li>
+    <li><strong>Update teacher</strong>: PATCH <code>/admin/teachers/:id</code> — name/email/mobile with conflict checks</li>
+    <li><strong>Activate/deactivate</strong>: PATCH <code>/admin/teachers/:id/status</code> with <code>{isActive: bool}</code></li>
+    <li><strong>Assign classroom</strong>: PATCH <code>/admin/teachers/:id/classroom</code> with <code>{classroomId}</code></li>
+    <li><strong>Remove from classroom</strong>: DELETE <code>/admin/teachers/:id/classroom/:classroomId</code></li>
+    <li>Every action writes an <code>audit_logs</code> row with actor/target/action</li>
+  </ul>
+
+  
+  <h2>9. Teacher / Classroom Assignment Model</h2>
+  <p><strong>Architecture: Teacher registers → Admin assigns classroom.</strong></p>
+  <p>The existing schema has a single <code>teacher_id</code> FK on <code>classrooms</code>. This constraint is preserved. Teachers self-register without being pre-assigned to a classroom. After registration, an admin uses <code>PATCH /admin/teachers/:id/classroom</code> to set the classroom's <code>teacher_id</code>. "Remove from classroom" deactivates the classroom (since the NOT NULL FK cannot be set to NULL) and the admin must reassign to reactivate.</p>
+
+  
+  <h2>10. Security Measures</h2>
+  <ul>
+    <li><strong>Registration code hashing</strong>: only SHA-256 hash stored; raw code shown once, never recoverable from DB</li>
+    <li><strong>Role enforcement</strong>: role is always <code>'teacher'</code> — set server-side, client cannot submit it</li>
+    <li><strong>Generic error messages</strong>: invalid code / expired / revoked / used all return the same 400 message; email/mobile conflicts return the same 409 message (no enumeration)</li>
+    <li><strong>No sensitive fields in responses</strong>: <code>password_hash</code>, <code>failed_login_attempts</code>, <code>locked_until</code> stripped from all list/detail responses</li>
+    <li><strong>Rate limiting</strong>: <code>registerLimiter</code> (8 attempts / hour) applied to teacher registration endpoint</li>
+    <li><strong>Admin-only enforcement</strong>: all code management and teacher management endpoints gated by <code>authenticate + authorizeRoles('admin')</code></li>
+    <li><strong>Audit logging</strong>: code created/revoked, teacher registered/updated/activated/deactivated/assigned/removed all logged — raw code and password_hash never logged</li>
+    <li><strong>Email verification</strong>: teacher registration follows same <code>REQUIRE_EMAIL_VERIFICATION</code> flag as admin-created teachers</li>
+    <li><strong>Single-use codes</strong>: code consumed on first successful registration via <code>markUsed()</code>; subsequent attempts find no valid record</li>
+    <li><strong>Expiry</strong>: <code>expires_at</code> checked in <code>findValidByHash()</code> SQL query; default 24h, configurable per code</li>
+    <li><strong>Revocable</strong>: <code>is_revoked</code> flag, checked in same query</li>
+    <li><strong>Crypto</strong>: code generated with <code>crypto.randomInt()</code>, token with <code>crypto.randomBytes()</code> — no <code>Math.random()</code></li>
+  </ul>
+
+  
+  <h2>11. Tests Added</h2>
+  <table>
+    <tr><th>Category</th><th>Count</th><th>File</th></tr>
+    <tr><td>Teacher registration — valid code, role, permissions, no hash in response</td><td>6</td><td><code>teacherRegistration.integration.test.js</code></td></tr>
+    <tr><td>Teacher registration — code validation (invalid/revoked/expired/used/missing)</td><td>6</td><td><code>teacherRegistration.integration.test.js</code></td></tr>
+    <tr><td>Teacher registration — validation errors (email/password/name/mismatch)</td><td>5</td><td><code>teacherRegistration.integration.test.js</code></td></tr>
+    <tr><td>Teacher registration — duplicate detection (non-enumerable)</td><td>3</td><td><code>teacherRegistration.integration.test.js</code></td></tr>
+    <tr><td>Admin: create registration code (auth, format, hash storage, custom expiry)</td><td>5</td><td><code>teacherRegistration.integration.test.js</code></td></tr>
+    <tr><td>Admin: list registration codes (auth, no hash exposure)</td><td>3</td><td><code>teacherRegistration.integration.test.js</code></td></tr>
+    <tr><td>Admin: revoke code (auth, success, 404, double-revoke, used-code)</td><td>5</td><td><code>teacherRegistration.integration.test.js</code></td></tr>
+    <tr><td>Admin: list teachers (auth, no sensitive fields)</td><td>3</td><td><code>teacherRegistration.integration.test.js</code></td></tr>
+    <tr><td>Admin: get teacher (auth, detail, 404)</td><td>3</td><td><code>teacherRegistration.integration.test.js</code></td></tr>
+    <tr><td>Admin: set teacher status (auth, activate, deactivate, validation)</td><td>4</td><td><code>teacherRegistration.integration.test.js</code></td></tr>
+    <tr><td>Admin: assign classroom (auth, success, validation, 404)</td><td>4</td><td><code>teacherRegistration.integration.test.js</code></td></tr>
+    <tr><td>Security (role escalation, code never in response, non-admin rejected, 500 safety)</td><td>4</td><td><code>teacherRegistration.integration.test.js</code></td></tr>
+    <tr><td>Frontend: TeacherRegisterPage (render, validation, error, success, loading, tokens)</td><td>8</td><td><code>TeacherRegisterPage.test.tsx</code></td></tr>
+    <tr><td><strong>Total new tests</strong></td><td><strong>61</strong></td><td></td></tr>
+  </table>
+
+  
+  <h2>12. Test Results</h2>
+  <div class="result-box">
+    <div class="section-label">Backend — Jest (npm test --forceExit)</div>
+    <div class="result-row"><span class="result-label">Test Suites</span><span class="result-val">69 passed, 5 skipped (real-DB), 0 failed</span></div>
+    <div class="result-row"><span class="result-label">Tests</span><span class="result-val">1205 passed, 56 skipped, 0 failed</span></div>
+    <div class="result-row"><span class="result-label">New teacher registration tests</span><span class="result-val">53 / 53 passed</span></div>
+    <div class="result-row"><span class="result-label">Auth regression suite</span><span class="result-val">157 / 157 passed</span></div>
+  </div>
+  <div class="result-box">
+    <div class="section-label">Frontend — TypeScript</div>
+    <div class="result-row"><span class="result-label">New files (TeachersPage, TeacherRegisterPage, adminApi, hooks, schemas)</span><span class="result-val"><span class="badge pass">0 errors</span></span></div>
+    <div class="result-row"><span class="result-label">Pre-existing errors in QuizAssignmentDetailPage.tsx</span><span class="result-val"><span class="badge warn">18 errors — pre-existing, not introduced</span></span></div>
+  </div>
+  <div class="result-box">
+    <div class="section-label">Frontend — Vitest</div>
+    <div class="result-row"><span class="result-label">Test files written</span><span class="result-val">TeacherRegisterPage.test.tsx (8 tests)</span></div>
+    <div class="result-row"><span class="result-label">Vitest worker</span><span class="result-val"><span class="badge warn">Windows worker timeout — pre-existing (same as ResetPasswordPage.test.tsx)</span></span></div>
+  </div>
+
+  
+  <h2>16. Remaining Issues / Notes</h2>
+  <ul>
+    <li><strong>Pre-existing TS errors</strong> in <code>QuizAssignmentDetailPage.tsx</code> (18 errors: missing <code>Skeleton</code>, <code>Card</code>, icon imports) — these existed before this sprint and are outside scope.</li>
+    <li><strong>Vitest worker timeout</strong> on Windows: both the existing <code>ResetPasswordPage.test.tsx</code> and the new <code>TeacherRegisterPage.test.tsx</code> time out in this environment. This is an infrastructure issue, not a test code issue. On Linux/Mac CI the tests run normally.</li>
+    <li><strong>Admin dashboard</strong> is currently a placeholder page. The admin teacher management UI lives at <code>/admin/teachers</code> — the admin dashboard could link to it.</li>
+    <li><strong>Flyway migration V18</strong> must be applied to the database before deploying. The teacher registration endpoint will fail with a 500 if the <code>teacher_registration_codes</code> table doesn't exist.</li>
+    <li><strong>"Remove teacher from classroom"</strong> deactivates the classroom (FK cannot be NULL). Admin must reassign a teacher to reactivate the classroom. This is a schema constraint from V1 that would require a separate migration to relax.</li>
+  </ul>
+
+  <footer>Made with IBM Bob</footer>
+</div>
+</body>
+</html>

@@ -2,10 +2,11 @@
  * server/tests/unit/services/studentRegister.service.test.js
  *
  * Unit tests for studentRegister() in auth.service.js — P1 student
- * registration (email + mobile + name + password).
+ * registration (email + mobile + name + classroom code + password).
  *
  * The database layer is fully mocked; tests exercise service-layer logic
- * only (validation, duplicate detection, hashing, token issuance, audit).
+ * only (classroom validation, duplicate detection, hashing, token issuance,
+ * audit, classroom linking).
  */
 
 // ── Mocks (must be declared before any require) ──────────────────────────────
@@ -21,6 +22,8 @@ jest.mock('../../../src/repositories/student.repository', () => ({
   existsByUsername: jest.fn(),
   create:           jest.fn(),
   findById:         jest.fn(),
+  findByEmail:      jest.fn(),
+  findByMobile:     jest.fn(),
 }));
 
 jest.mock('../../../src/repositories/admin.repository', () => ({
@@ -75,17 +78,24 @@ jest.mock('../../../src/services/email.service', () => ({
 
 // ── Test subject ──────────────────────────────────────────────────────────────
 
-const authService  = require('../../../src/services/auth.service');
-const studentRepo  = require('../../../src/repositories/student.repository');
-const auditRepo    = require('../../../src/repositories/audit.repository');
-const bcrypt       = require('bcryptjs');
+const authService    = require('../../../src/services/auth.service');
+const studentRepo    = require('../../../src/repositories/student.repository');
+const classroomRepo  = require('../../../src/repositories/classroom.repository');
+const auditRepo      = require('../../../src/repositories/audit.repository');
+const bcrypt         = require('bcryptjs');
 
 // ── Shared fixtures ───────────────────────────────────────────────────────────
+
+const ACTIVE_CLASSROOM = {
+  id: 7, name: 'Grade 10A', is_active: true, deleted_at: null,
+  class_code: 'DEMO1234', teacher_id: 1,
+};
 
 const VALID_PAYLOAD = {
   name:            'Riya Patel',
   email:           'riya.patel@student.com',
   mobile:          '+919876543210',
+  classCode:       'DEMO1234',
   password:        'Secret@123',
   confirmPassword: 'Secret@123',
 };
@@ -97,9 +107,10 @@ beforeEach(() => {
   studentRepo.existsByMobile.mockResolvedValue(false);
   studentRepo.existsByUsername.mockResolvedValue(false);
   studentRepo.create.mockResolvedValue(42);
+  classroomRepo.findByCode.mockResolvedValue(ACTIVE_CLASSROOM);
 });
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+// ── Valid registration ────────────────────────────────────────────────────────
 
 describe('authService.studentRegister — valid registration', () => {
   it('creates a student and returns tokens + safe user object', async () => {
@@ -118,13 +129,19 @@ describe('authService.studentRegister — valid registration', () => {
     });
   });
 
+  it('links the student to the classroom_id resolved from the code', async () => {
+    await authService.studentRegister(VALID_PAYLOAD);
+
+    const createCall = studentRepo.create.mock.calls[0][0];
+    expect(createCall.classroom_id).toBe(ACTIVE_CLASSROOM.id);
+  });
+
   it('hashes the password before storing — never stores plaintext', async () => {
     await authService.studentRegister(VALID_PAYLOAD);
 
     const createCall = studentRepo.create.mock.calls[0][0];
     expect(createCall.password_hash).toBeDefined();
     expect(createCall.password_hash).not.toBe(VALID_PAYLOAD.password);
-    // Verify the hash is a valid bcrypt hash
     const isValid = await bcrypt.compare(VALID_PAYLOAD.password, createCall.password_hash);
     expect(isValid).toBe(true);
   });
@@ -162,7 +179,12 @@ describe('authService.studentRegister — valid registration', () => {
     await authService.studentRegister(VALID_PAYLOAD);
 
     expect(auditRepo.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'student_registered', actorType: 'student', actorId: 42 })
+      expect.objectContaining({
+        action: 'student_registered',
+        actorType: 'student',
+        actorId: 42,
+        details: expect.objectContaining({ classroomId: ACTIVE_CLASSROOM.id }),
+      })
     );
   });
 
@@ -171,6 +193,58 @@ describe('authService.studentRegister — valid registration', () => {
 
     expect(result.user.role).toBe('student');
     expect(result.permissions).toEqual(expect.any(Array));
+  });
+});
+
+// ── Classroom code validation ─────────────────────────────────────────────────
+
+describe('authService.studentRegister — classroom code validation', () => {
+  it('throws 400 when classCode is missing', async () => {
+    await expect(
+      authService.studentRegister({ ...VALID_PAYLOAD, classCode: '' })
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    expect(classroomRepo.findByCode).not.toHaveBeenCalled();
+    expect(studentRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('throws 404 when classroom code does not exist', async () => {
+    classroomRepo.findByCode.mockResolvedValue(null);
+
+    await expect(
+      authService.studentRegister(VALID_PAYLOAD)
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(studentRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('throws 400 when classroom is inactive', async () => {
+    classroomRepo.findByCode.mockResolvedValue({ ...ACTIVE_CLASSROOM, is_active: false });
+
+    await expect(
+      authService.studentRegister(VALID_PAYLOAD)
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    expect(studentRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('throws 400 when classroom is soft-deleted', async () => {
+    classroomRepo.findByCode.mockResolvedValue({
+      ...ACTIVE_CLASSROOM,
+      deleted_at: new Date().toISOString(),
+    });
+
+    await expect(
+      authService.studentRegister(VALID_PAYLOAD)
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    expect(studentRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('normalizes classCode to UPPERCASE before lookup', async () => {
+    await authService.studentRegister({ ...VALID_PAYLOAD, classCode: 'demo1234' });
+
+    expect(classroomRepo.findByCode).toHaveBeenCalledWith('DEMO1234');
   });
 });
 

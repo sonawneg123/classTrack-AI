@@ -33,6 +33,76 @@ export interface AdminDashboardData {
   submissionStats: SubmissionStatDatum[];
 }
 
+// ── Admin Dashboard API types ─────────────────────────────────────────────────
+
+export interface AdminDashboardClassroom {
+  id: number;
+  name: string;
+  subject: string | null;
+  section: string | null;
+  classCode: string;
+  isActive: boolean;
+  createdAt: string;
+  teacherId: number;
+  teacherName: string;
+  teacherActive: boolean;
+  studentCount: number;
+  taskCount: number;
+}
+
+export interface AdminDashboardActivityItem {
+  id: number;
+  actorType: string;
+  actorId: number | null;
+  actorName: string | null;
+  action: string;
+  targetType: string | null;
+  targetId: number | null;
+  details: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface AdminDashboardAlert {
+  type: string;
+  message: string;
+  count: number;
+}
+
+export interface AdminDashboardApiData {
+  overview: {
+    students: number;
+    teachers: number;
+    classrooms: number;
+    assignments: number;
+    submissions: number;
+  };
+  teachers: {
+    total: number;
+    active: number;
+    inactive: number;
+    unassigned: number;
+  };
+  students: {
+    total: number;
+    active: number;
+    inactive: number;
+  };
+  classrooms: {
+    total: number;
+    active: number;
+    inactive: number;
+  };
+  evaluations: {
+    pending: number;
+    analyzing: number;
+    completed: number;
+    failed: number;
+  };
+  classroomList: AdminDashboardClassroom[];
+  activity: AdminDashboardActivityItem[];
+  alerts: AdminDashboardAlert[];
+}
+
 export interface DeadlineItem {
   id: string;
   title: string;

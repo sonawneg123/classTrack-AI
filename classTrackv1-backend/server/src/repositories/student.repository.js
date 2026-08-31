@@ -45,6 +45,14 @@ class StudentRepository extends BaseRepository {
 
   // ── Mobile lookup ─────────────────────────────────────────────────────────────
 
+  async findByMobile(mobileNumber) {
+    const [rows] = await this.pool.query(
+      `SELECT * FROM students WHERE mobile_number = $1 LIMIT 1`,
+      [mobileNumber]
+    );
+    return rows[0] || null;
+  }
+
   async existsByMobile(mobileNumber) {
     return (await this.countBy('mobile_number', mobileNumber)) > 0;
   }
