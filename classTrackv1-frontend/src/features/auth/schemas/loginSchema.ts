@@ -1,38 +1,34 @@
 import { z } from "zod";
 
 /**
- * Password strength is enforced at registration/reset time on the backend
- * (min 6 chars there) — the LOGIN validators (auth.validator.js) only
- * require a non-empty string, since login just compares against a stored
- * hash. Matching that here: a stricter client-side rule would incorrectly
- * block valid logins for accounts with shorter passwords.
+ * Password for login: just non-empty (server verifies against hash).
  */
-const password = z.string().min(1, "Password is required");
+const loginPassword = z.string().min(1, "Password is required");
 
 /**
- * Both schemas validate into the SAME shape (LoginFormValues, below) —
- * one field is required and format-checked, the other stays optional and
- * unused for that role. This lets the login form use a single `useForm`
- * generic (not a union), so every `register(...)` call type-checks
- * cleanly regardless of which role tab is active.
+ * Shared email validation rule.
+ */
+export const emailField = z
+  .string()
+  .min(1, "Email is required")
+  .email("Enter a valid email address");
+
+/**
+ * Both admin/teacher and student tabs now authenticate by email.
+ * Both schemas validate into the SAME shape (LoginFormValues) so
+ * the login form can use a single `useForm` generic.
  */
 export const emailLoginSchema = z.object({
-  email: z.string().min(1, "Email is required").email("Enter a valid email address"),
-  username: z.string().optional(),
-  password,
+  email: emailField,
+  password: loginPassword,
 });
 
 export const studentLoginSchema = z.object({
-  email: z.string().optional(),
-  username: z
-    .string()
-    .min(3, "Username must be at least 3 characters")
-    .max(30, "Username must be at most 30 characters"),
-  password,
+  email: emailField,
+  password: loginPassword,
 });
 
 export interface LoginFormValues {
-  email?: string;
-  username?: string;
+  email: string;
   password: string;
 }

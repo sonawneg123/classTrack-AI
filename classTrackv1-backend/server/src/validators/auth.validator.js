@@ -17,18 +17,31 @@ const teacherLogin = {
   }),
 };
 
+/**
+ * Mobile number validation: accepts any string that, after stripping spaces
+ * and dashes, is a valid E.164 number with an optional leading +.
+ * Examples accepted: +919876543210, +91 9876543210, 09876543210, 9876543210
+ * The service layer normalises to E.164 before storage.
+ */
+const mobileSchema = Joi.string()
+  .pattern(/^\+?[\d\s\-]{7,15}$/)
+  .required()
+  .label('Mobile number');
+
 const studentRegister = {
   body: Joi.object({
-    username:  Joi.string().alphanum().min(3).max(30).pattern(/^[a-zA-Z0-9_.]+$/).required().label('Username'),
-    name:      Joi.string().min(2).max(100).required().label('Name'),
-    classCode: Joi.string().alphanum().min(4).max(12).required().label('Classroom code'),
-    password:  Joi.string().min(6).max(128).required().label('Password'),
+    name:            Joi.string().min(2).max(100).required().label('Full name'),
+    email:           Joi.string().email().max(150).required().label('Email'),
+    mobile:          mobileSchema,
+    password:        Joi.string().min(8).max(128).required().label('Password'),
+    confirmPassword: Joi.string().required().label('Confirm password').valid(Joi.ref('password'))
+                       .messages({ 'any.only': 'Passwords do not match.' }),
   }),
 };
 
 const studentLogin = {
   body: Joi.object({
-    username: Joi.string().min(3).max(30).required().label('Username'),
+    email:    Joi.string().email().required().label('Email'),
     password: Joi.string().min(1).required().label('Password'),
   }),
 };

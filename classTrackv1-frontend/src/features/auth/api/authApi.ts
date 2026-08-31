@@ -5,6 +5,7 @@ import type {
   EmailLoginPayload,
   LoginResponseData,
   StudentLoginPayload,
+  StudentRegisterPayload,
 } from "@/types/auth";
 
 /**
@@ -18,6 +19,7 @@ const ENDPOINTS = {
   ADMIN_LOGIN: "/auth/admin/login",
   TEACHER_LOGIN: "/auth/teacher/login",
   STUDENT_LOGIN: "/auth/student/login",
+  STUDENT_REGISTER: "/auth/student/register",
   REFRESH: "/auth/refresh",
   LOGOUT: "/auth/logout",
   ME: "/auth/me",
@@ -25,7 +27,7 @@ const ENDPOINTS = {
 
 async function _postLogin(
   url: string,
-  payload: EmailLoginPayload | StudentLoginPayload
+  payload: EmailLoginPayload | StudentLoginPayload | StudentRegisterPayload
 ): Promise<LoginResponseData> {
   const { data } = await apiClient.post<ApiResponse<LoginResponseData>>(url, payload);
   if (!data.success) throw new Error(data.message);
@@ -36,6 +38,7 @@ export const authApi = {
   loginAdmin: (payload: EmailLoginPayload) => _postLogin(ENDPOINTS.ADMIN_LOGIN, payload),
   loginTeacher: (payload: EmailLoginPayload) => _postLogin(ENDPOINTS.TEACHER_LOGIN, payload),
   loginStudent: (payload: StudentLoginPayload) => _postLogin(ENDPOINTS.STUDENT_LOGIN, payload),
+  registerStudent: (payload: StudentRegisterPayload) => _postLogin(ENDPOINTS.STUDENT_REGISTER, payload),
 
   async getCurrentUser(): Promise<AuthUser> {
     const { data } = await apiClient.get<ApiResponse<AuthUser>>(ENDPOINTS.ME);

@@ -345,7 +345,9 @@ describe('Auth API — /api/v1/auth', () => {
       expect(res.body.data.profile).toEqual(
         expect.objectContaining({ username: 'riya_patel', classroomId: 3 })
       );
-      expect(res.body.data.profile.email).toBeUndefined();
+      // Students now have an email column (nullable) — legacy students
+      // registered without email will have null, not undefined.
+      expect(res.body.data.profile.email).toBeNull();
     });
   });
 

@@ -1,5 +1,5 @@
-import { useRef, useState, type SyntheticEvent } from "react";
-import { useForm, type Resolver } from "react-hook-form";
+import { useState, type SyntheticEvent } from "react";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Alert,
@@ -8,12 +8,14 @@ import {
   CircularProgress,
   IconButton,
   InputAdornment,
+  Link,
   Tab,
   Tabs,
   TextField,
+  Typography,
 } from "@mui/material";
 import { Visibility, VisibilityOff } from "@mui/icons-material";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, Link as RouterLink } from "react-router-dom";
 import { useAuth } from "@app/AuthProvider";
 import { getErrorMessage } from "@utils/apiError";
 import { getDashboardPathForRole } from "@utils/roleRoutes";
@@ -24,6 +26,7 @@ import {
   studentLoginSchema,
   type LoginFormValues,
 } from "../schemas/loginSchema";
+import { ROUTES } from "@utils/constants";
 
 const ROLE_TABS: { value: Role; label: string }[] = [
   { value: "teacher", label: "Teacher" },
@@ -39,31 +42,14 @@ export function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Kept in a ref so the resolver below always validates against the
-  // *currently selected* role tab — react-hook-form calls `resolver` fresh
-  // on every validation, so reading a ref here (rather than closing over
-  // `role` state at mount time) keeps it accurate across tab switches.
-  const roleRef = useRef(role);
-  roleRef.current = role;
-
-  const resolver: Resolver<LoginFormValues> = (values, context, options) => {
-    const schema = roleRef.current === "student" ? studentLoginSchema : emailLoginSchema;
-    // Both schemas validate into the same LoginFormValues shape (see
-    // loginSchema.ts) — the cast just bridges zodResolver's per-schema
-    // inferred type to that shared shape.
-    return zodResolver(schema)(values, context, options) as ReturnType<
-      Resolver<LoginFormValues>
-    >;
-  };
-
   const {
     register,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
   } = useForm<LoginFormValues>({
-    resolver,
-    defaultValues: { email: "", username: "", password: "" },
+    resolver: zodResolver(role === "student" ? studentLoginSchema : emailLoginSchema),
+    defaultValues: { email: "", password: "" },
   });
 
   const redirectTo = (location.state as { from?: string } | null)?.from;
@@ -71,19 +57,18 @@ export function LoginForm() {
   const handleRoleChange = (_event: SyntheticEvent, next: Role) => {
     setRole(next);
     setFormError(null);
-    reset({ email: "", username: "", password: "" });
+    reset({ email: "", password: "" });
   };
 
   const onSubmit = async (values: LoginFormValues) => {
     setFormError(null);
     try {
-      const user =
-        role === "student"
-          ? await login(role, { username: values.username!, password: values.password } satisfies StudentLoginPayload)
-          : await login(role, { email: values.email!, password: values.password } satisfies EmailLoginPayload);
-      navigate(redirectTo ?? getDashboardPathForRole(user.role), {
-        replace: true,
-      });
+      const payload: EmailLoginPayload | StudentLoginPayload = {
+        email: values.email,
+        password: values.password,
+      };
+      const user = await login(role, payload);
+      navigate(redirectTo ?? getDashboardPathForRole(user.role), { replace: true });
     } catch (error) {
       setFormError(getErrorMessage(error));
     }
@@ -119,28 +104,16 @@ export function LoginForm() {
           </Alert>
         )}
 
-        {role === "student" ? (
-          <TextField
-            label="Username"
-            autoComplete="username"
-            autoFocus
-            fullWidth
-            error={Boolean(errors.username)}
-            helperText={errors.username?.message}
-            {...register("username")}
-          />
-        ) : (
-          <TextField
-            label="Email"
-            type="email"
-            autoComplete="email"
-            autoFocus
-            fullWidth
-            error={Boolean(errors.email)}
-            helperText={errors.email?.message}
-            {...register("email")}
-          />
-        )}
+        <TextField
+          label="Email"
+          type="email"
+          autoComplete="email"
+          autoFocus
+          fullWidth
+          error={Boolean(errors.email)}
+          helperText={errors.email?.message}
+          {...register("email")}
+        />
 
         <TextField
           label="Password"
@@ -181,6 +154,20 @@ export function LoginForm() {
         >
           {isSubmitting ? "Signing in…" : "Sign in"}
         </Button>
+
+        {role === "student" && (
+          <Typography variant="body2" align="center" color="text.secondary">
+            New student?{" "}
+            <Link
+              component={RouterLink}
+              to={ROUTES.STUDENT_REGISTER}
+              underline="hover"
+              color="primary"
+            >
+              Create an account
+            </Link>
+          </Typography>
+        )}
       </Box>
     </Box>
   );

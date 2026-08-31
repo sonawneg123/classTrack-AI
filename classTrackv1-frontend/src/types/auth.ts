@@ -35,10 +35,19 @@ export interface EmailLoginPayload {
   password: string;
 }
 
-/** Students authenticate with username + password — no email on file. */
+/** Students authenticate with email + password (P1 registration flow). */
 export interface StudentLoginPayload {
-  username: string;
+  email: string;
   password: string;
+}
+
+/** Student self-registration payload (P1). */
+export interface StudentRegisterPayload {
+  name: string;
+  email: string;
+  mobile: string;
+  password: string;
+  confirmPassword: string;
 }
 
 /** The `user` object embedded directly in a login response. Deliberately

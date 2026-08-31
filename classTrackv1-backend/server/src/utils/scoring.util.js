@@ -56,4 +56,146 @@ function autoScore(questionType, correctAnswer, studentAnswer, marks) {
   };
 }
 
-module.exports = { effectiveScore, isOverridden, autoScore, AUTO_SCORE_TYPES };
+// ── Mastery calculation ────────────────────────────────────────────────────────
+
+/**
+ * Mastery thresholds (score 0.0 – 1.0):
+ *   ≥ 0.80  → mastered
+ *   ≥ 0.60  → progressing
+ *   < 0.60  → needs_practice
+ */
+const MASTERY_THRESHOLDS = {
+  MASTERED:    0.80,
+  PROGRESSING: 0.60,
+};
+
+/**
+ * Moving-average weight for the current session vs. historical mastery.
+ * α = 0.4 gives 40% weight to the new session and 60% to historical score.
+ * This keeps mastery deterministic and explainable.
+ */
+const MASTERY_ALPHA = 0.4;
+
+/**
+ * Calculate mastery from a completed practice session.
+ *
+ * Algorithm (deterministic, explainable):
+ *   1. Count scoreable attempts (is_correct is NOT NULL).
+ *   2. sessionAccuracy = correctAnswers / scoreableAttempts  (or 0 if none).
+ *   3. newMasteryScore = α * sessionAccuracy + (1 - α) * previousMasteryScore.
+ *      On first session: newMasteryScore = sessionAccuracy.
+ *   4. Update rolling totals and consecutive streaks.
+ *
+ * Design decisions:
+ *   - Questions with is_correct=NULL (free-text) are excluded from accuracy.
+ *   - Sessions with zero scoreable attempts do not change mastery_score
+ *     but still increment sessions_completed.
+ *   - Consecutive streaks reset when the opposite result occurs.
+ *
+ * @param {object[]} sessionAttempts  — rows from quiz_attempts (may include null is_correct)
+ * @param {object|null} previousMastery — existing student_topic_mastery row, or null
+ * @param {Date|string} sessionCompletedAt
+ * @returns {object}  New mastery values (ready for upsertMastery)
+ */
+function calculateMastery(sessionAttempts, previousMastery, sessionCompletedAt) {
+  // Only scoreable attempts count toward accuracy
+  const scoreable = sessionAttempts.filter((a) => a.is_correct !== null);
+  const sessionCorrect = scoreable.filter((a) => a.is_correct === true).length;
+  const sessionTotal   = scoreable.length;
+
+  const sessionAccuracy = sessionTotal > 0
+    ? sessionCorrect / sessionTotal
+    : null; // no scoreable questions — mastery_score unchanged
+
+  // Pull previous values (defaults for cold start)
+  const prev = previousMastery || {
+    mastery_score:         0.0,
+    sessions_completed:    0,
+    questions_attempted:   0,
+    questions_correct:     0,
+    consecutive_correct:   0,
+    consecutive_incorrect: 0,
+  };
+
+  const prevScore = Number(prev.mastery_score);
+
+  // Moving average — only update score if there are scoreable questions
+  const newScore = sessionAccuracy !== null
+    ? (prev.sessions_completed === 0
+        ? sessionAccuracy                                      // cold start: use session directly
+        : MASTERY_ALPHA * sessionAccuracy + (1 - MASTERY_ALPHA) * prevScore)
+    : prevScore; // no scoreable questions: keep previous score
+
+  // Clamp to [0, 1]
+  const clampedScore = Math.min(1.0, Math.max(0.0, newScore));
+
+  // Rolling totals
+  const newQuestionsAttempted = Number(prev.questions_attempted) + sessionAttempts.length;
+  const newQuestionsCorrect   = Number(prev.questions_correct)   + sessionCorrect;
+
+  // Consecutive streaks: walk through the scoreable attempts in order
+  let consecutive_correct   = Number(prev.consecutive_correct);
+  let consecutive_incorrect = Number(prev.consecutive_incorrect);
+
+  for (const attempt of scoreable) {
+    if (attempt.is_correct === true) {
+      consecutive_correct   += 1;
+      consecutive_incorrect  = 0;
+    } else {
+      consecutive_incorrect += 1;
+      consecutive_correct    = 0;
+    }
+  }
+
+  return {
+    mastery_score:         clampedScore,
+    sessions_completed:    Number(prev.sessions_completed) + 1,
+    questions_attempted:   newQuestionsAttempted,
+    questions_correct:     newQuestionsCorrect,
+    consecutive_correct,
+    consecutive_incorrect,
+    last_session_at:       sessionCompletedAt,
+  };
+}
+
+/**
+ * Derive the recommended difficulty from current mastery (not persisted).
+ *
+ * mastery_score ≥ 0.80  → 'hard'   (student is mastered, push harder)
+ * mastery_score ≥ 0.60  → 'medium' (progressing, maintain challenge)
+ * mastery_score <  0.60  → 'easy'  (needs practice, reduce difficulty)
+ *
+ * @param {number} masteryScore  0.0 – 1.0
+ * @returns {'easy'|'medium'|'hard'}
+ */
+function deriveDifficulty(masteryScore) {
+  const s = Number(masteryScore);
+  if (s >= MASTERY_THRESHOLDS.MASTERED)    return 'hard';
+  if (s >= MASTERY_THRESHOLDS.PROGRESSING) return 'medium';
+  return 'easy';
+}
+
+/**
+ * Derive a human-readable mastery level label.
+ *
+ * @param {number} masteryScore  0.0 – 1.0
+ * @returns {'mastered'|'progressing'|'needs_practice'}
+ */
+function deriveMasteryLevel(masteryScore) {
+  const s = Number(masteryScore);
+  if (s >= MASTERY_THRESHOLDS.MASTERED)    return 'mastered';
+  if (s >= MASTERY_THRESHOLDS.PROGRESSING) return 'progressing';
+  return 'needs_practice';
+}
+
+module.exports = {
+  effectiveScore,
+  isOverridden,
+  autoScore,
+  AUTO_SCORE_TYPES,
+  calculateMastery,
+  deriveDifficulty,
+  deriveMasteryLevel,
+  MASTERY_THRESHOLDS,
+  MASTERY_ALPHA,
+};

@@ -43,6 +43,9 @@ const PERMISSIONS = {
   QUESTION_VIEW_RESULTS:     'question:view_results',
   // Sprint 6 — Student AI Practice
   QUESTION_PRACTICE_GENERATE: 'question:practice_generate',
+  // Sprint 3 Phase 1 — Practice Sessions + Mastery
+  PRACTICE_SESSION_MANAGE:     'practice:session_manage',
+  PRACTICE_MASTERY_VIEW:       'practice:mastery_view',
   // Sprint 7 — Quiz Assignments
   QUIZ_CREATE:                 'quiz:create',
   QUIZ_MANAGE_OWN:             'quiz:manage_own',
@@ -93,6 +96,9 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.QUESTION_ATTEMPT,       // submit an answer attempt on a published question
     // Sprint 6 — Student AI Practice (separate from teacher question:generate)
     PERMISSIONS.QUESTION_PRACTICE_GENERATE,
+    // Sprint 3 Phase 1 — Practice Sessions + Mastery
+    PERMISSIONS.PRACTICE_SESSION_MANAGE,
+    PERMISSIONS.PRACTICE_MASTERY_VIEW,
     // Sprint 7 — Quiz Assignments
     PERMISSIONS.QUIZ_ATTEMPT,
   ],

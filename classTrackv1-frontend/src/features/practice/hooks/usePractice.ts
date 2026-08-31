@@ -1,12 +1,13 @@
 // src/features/practice/hooks/usePractice.ts
 //
-// Sprint 6 — React Query hooks for Student AI Practice
+// Sprint 6 + Sprint 3 Phase 1 — React Query hooks for Student AI Practice
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSnackbar } from "notistack";
 import { practiceApi } from "../api/practiceApi";
 import { getErrorMessage } from "@utils/apiError";
 import type { GenerateQuestionsRequest } from "@/types/question";
+import type { CreateSessionRequest } from "@/types/practiceSession";
 
 // ── Query keys ────────────────────────────────────────────────────────────────
 const PK = {
@@ -15,6 +16,12 @@ const PK = {
   practiceQuestion: (id: number) => ["practice", "question", id] as const,
   practiceAttempt: (questionId: number) =>
     ["practice", "attempt", questionId] as const,
+  // Sprint 3 Phase 1
+  practiceSession: (sessionId: number) =>
+    ["practice", "session", sessionId] as const,
+  mastery: () => ["practice", "mastery"] as const,
+  topicMastery: (topicId: number) =>
+    ["practice", "mastery", topicId] as const,
 };
 
 // ── Generation ─────────────────────────────────────────────────────────────────
@@ -61,10 +68,12 @@ export function useSubmitPracticeAttempt() {
     mutationFn: ({
       questionId,
       studentAnswer,
+      practiceSessionId,
     }: {
       questionId: number;
       studentAnswer: string;
-    }) => practiceApi.submitAttempt(questionId, studentAnswer),
+      practiceSessionId?: number;
+    }) => practiceApi.submitAttempt(questionId, studentAnswer, practiceSessionId),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: PK.practiceAttempt(data.questionId) });
     },
@@ -78,5 +87,46 @@ export function usePracticeAttempt(questionId: number | null) {
     queryKey: PK.practiceAttempt(questionId!),
     queryFn: () => practiceApi.getAttempt(questionId!),
     enabled: !!questionId,
+  });
+}
+
+// ── Sprint 3 Phase 1: Practice Session lifecycle ───────────────────────────────
+
+export function useCreateSession() {
+  const { enqueueSnackbar } = useSnackbar();
+  return useMutation({
+    mutationFn: (payload: CreateSessionRequest) => practiceApi.createSession(payload),
+    onError: (e) => enqueueSnackbar(getErrorMessage(e), { variant: "error" }),
+  });
+}
+
+export function useCompleteSession() {
+  const { enqueueSnackbar } = useSnackbar();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: number) => practiceApi.completeSession(sessionId),
+    onSuccess: (_data, sessionId) => {
+      // Invalidate mastery cache so the mastery banner refreshes
+      qc.invalidateQueries({ queryKey: PK.mastery() });
+      qc.invalidateQueries({ queryKey: PK.practiceSession(sessionId) });
+    },
+    onError: (e) => enqueueSnackbar(getErrorMessage(e), { variant: "error" }),
+  });
+}
+
+// ── Sprint 3 Phase 1: Mastery ──────────────────────────────────────────────────
+
+export function useMastery() {
+  return useQuery({
+    queryKey: PK.mastery(),
+    queryFn: () => practiceApi.listMastery(),
+  });
+}
+
+export function useTopicMastery(topicId: number | null) {
+  return useQuery({
+    queryKey: PK.topicMastery(topicId!),
+    queryFn: () => practiceApi.getTopicMastery(topicId!),
+    enabled: !!topicId,
   });
 }

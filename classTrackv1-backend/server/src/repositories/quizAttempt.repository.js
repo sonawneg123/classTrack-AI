@@ -25,12 +25,32 @@ class QuizAttemptRepository extends BaseRepository {
    * @param {number|null}  data.score       — null for free-text types
    * @returns {Promise<object>}  The inserted/updated row
    */
-  async upsert({ studentId, questionId, studentAnswer, isCorrect, score }) {
+  /**
+   * Upsert a quiz attempt, optionally linking to a practice session.
+   *
+   * practice_session_id is nullable for backward compatibility:
+   *   - Existing attempts (quiz assignments, standalone) pass no sessionId.
+   *   - New practice session attempts pass sessionId.
+   *
+   * On conflict: updates the attempt row but does NOT change
+   * practice_session_id (first session association wins).
+   *
+   * @param {object} data
+   * @param {number}       data.studentId
+   * @param {number}       data.questionId
+   * @param {string}       data.studentAnswer
+   * @param {boolean|null} data.isCorrect
+   * @param {number|null}  data.score
+   * @param {number|null}  [data.practiceSessionId]  — null for non-session attempts
+   * @returns {Promise<object>}  The inserted/updated row
+   */
+  async upsert({ studentId, questionId, studentAnswer, isCorrect, score, practiceSessionId = null }) {
     const [rows] = await this.pool.query(
       `INSERT INTO quiz_attempts
          (student_id, question_id, student_answer, is_correct, score,
+          practice_session_id,
           attempt_count, first_attempted_at, last_attempted_at)
-       VALUES ($1, $2, $3, $4, $5, 1, NOW(), NOW())
+       VALUES ($1, $2, $3, $4, $5, $6, 1, NOW(), NOW())
        ON CONFLICT (student_id, question_id) DO UPDATE SET
          student_answer    = EXCLUDED.student_answer,
          is_correct        = EXCLUDED.is_correct,
@@ -39,8 +59,9 @@ class QuizAttemptRepository extends BaseRepository {
          last_attempted_at = NOW()
        RETURNING id, student_id, question_id, student_answer,
                  is_correct, score, attempt_count,
+                 practice_session_id,
                  first_attempted_at, last_attempted_at`,
-      [studentId, questionId, studentAnswer, isCorrect, score]
+      [studentId, questionId, studentAnswer, isCorrect, score, practiceSessionId]
     );
     return rows[0];
   }

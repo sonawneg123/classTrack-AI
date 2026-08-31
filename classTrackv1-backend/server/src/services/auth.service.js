@@ -24,6 +24,7 @@ const tokenService = require('./token.service');
 const emailService = require('./email.service');
 const { generateRawToken, hashToken, minutesFromNow, hoursFromNow } = require('../utils/token.util');
 const { isValidUsername } = require('../utils/username.util');
+const { normalizeMobile } = require('../utils/mobile.util');
 const logger  = require('../utils/logger.util');
 
 // Repositories
@@ -37,6 +38,21 @@ const emailVerificationRepo = require('../repositories/emailVerificationToken.re
 const passwordResetRepo = require('../repositories/passwordResetToken.repository');
 
 const REPO_BY_ROLE = { admin: adminRepo, teacher: teacherRepo, student: studentRepo };
+
+// ---------------------------------------------------------------------------
+// Password policy (shared)
+// ---------------------------------------------------------------------------
+/**
+ * Minimum password rules for self-registration.
+ * Min 8 chars enforced by Joi validator (auth.validator.js).
+ * This helper provides the service-layer enforcement as defense-in-depth and
+ * returns a user-friendly message so callers can throw it directly.
+ */
+function _assertPasswordStrength(password) {
+  if (!password || password.length < 8) {
+    throw ApiError.badRequest('Password must be at least 8 characters.');
+  }
+}
 
 // --------------------------------------------------------------------------
 // Internal helpers
@@ -135,55 +151,63 @@ async function teacherLogin({ email, password, ipAddress, userAgent }) {
 }
 
 // --------------------------------------------------------------------------
-// Student register
+// Student register (P1 — email + mobile + name + password)
 // --------------------------------------------------------------------------
-async function studentRegister({ username, name, classCode, password }) {
-  if (!isValidUsername(username)) {
-    throw ApiError.badRequest(
-      'Username must be 3-30 characters and can only contain letters, numbers, underscores, and periods.'
-    );
+async function studentRegister({ name, email, mobile, password }) {
+  _assertPasswordStrength(password);
+
+  const normalizedEmail  = email.trim().toLowerCase();
+  const normalizedMobile = normalizeMobile(mobile);
+
+  // Duplicate checks — return a safe, non-enumerable message for both cases
+  if (await studentRepo.existsByEmail(normalizedEmail)) {
+    throw ApiError.conflict('User already exists.');
   }
 
-  const classroom = await classroomRepo.findByCode(classCode);
-  if (!classroom || !classroom.is_active) {
-    throw ApiError.notFound('No classroom found with that code. Double-check it with your teacher.');
-  }
-
-  if (await studentRepo.existsByUsername(username)) {
-    throw ApiError.conflict('That username is already taken. Please choose another.');
+  if (await studentRepo.existsByMobile(normalizedMobile)) {
+    throw ApiError.conflict('User already exists.');
   }
 
   const passwordHash = await _hashPassword(password);
+
+  // Auto-derive a unique username from the email local-part for backward compat
+  // with any code that still queries students by username.  Append a suffix if
+  // taken to guarantee uniqueness without exposing the conflict to the caller.
+  let username = normalizedEmail.split('@')[0].replace(/[^a-z0-9_.]/gi, '').slice(0, 28) || 'student';
+  if (await studentRepo.existsByUsername(username)) {
+    username = username.slice(0, 24) + Math.floor(1000 + Math.random() * 9000);
+  }
+
   const id = await studentRepo.create({
-    username:      username.trim().toLowerCase(),
+    username,
     name:          name.trim(),
+    email:         normalizedEmail,
+    mobile_number: normalizedMobile,
     password_hash: passwordHash,
-    classroom_id:  classroom.id,
   });
 
   await auditRepo.insert({
     actorType: 'student', actorId: id,
-    action: 'student_registered', targetType: 'classroom', targetId: classroom.id,
+    action: 'student_registered',
   });
 
   const { accessToken, refreshToken, permissions } = await tokenService.issueTokenPair(
-    { id, role: 'student', name: name.trim(), classroomId: classroom.id }
+    { id, role: 'student', name: name.trim() }
   );
 
-  logger.info('Student registered', { studentId: id, classroomId: classroom.id });
+  logger.info('Student registered', { studentId: id });
   return {
     token: accessToken, accessToken, refreshToken, permissions,
-    user: { id, username: username.trim().toLowerCase(), name: name.trim(), role: 'student',
-            classroomId: classroom.id, classroomName: classroom.name },
+    user: { id, email: normalizedEmail, name: name.trim(), role: 'student' },
   };
 }
 
 // --------------------------------------------------------------------------
-// Student login (username + password — no email column on this role)
+// Student login (email + password — P1 registration flow)
 // --------------------------------------------------------------------------
-async function studentLogin({ username, password, ipAddress, userAgent }) {
-  const identifier = username.trim().toLowerCase();
-  const student = await studentRepo.findByUsername(username);
+async function studentLogin({ email, password, ipAddress, userAgent }) {
+  const identifier = email.trim().toLowerCase();
+  const student = await studentRepo.findByEmail(identifier);
 
   if (student && studentRepo.isCurrentlyLocked(student)) {
     await loginHistoryRepo.record({ userId: student.id, userRole: 'student', identifier, success: false, failureReason: 'account_locked', ipAddress, userAgent });
@@ -196,13 +220,13 @@ async function studentLogin({ username, password, ipAddress, userAgent }) {
       failureReason: !student ? 'invalid_credentials' : (!student.is_active ? 'account_disabled' : 'invalid_credentials'),
       ipAddress, userAgent,
     });
-    throw ApiError.unauthorized('Invalid username or password.');
+    throw ApiError.unauthorized('Invalid email or password.');
   }
 
   await _recordSuccessfulAttempt({ repo: studentRepo, account: student, role: 'student', identifier, ipAddress, userAgent });
 
   const { accessToken, refreshToken, permissions } = await tokenService.issueTokenPair(
-    { id: student.id, role: 'student', name: student.name, classroomId: student.classroom_id },
+    { id: student.id, role: 'student', name: student.name },
     { ipAddress, userAgent }
   );
 
@@ -210,8 +234,7 @@ async function studentLogin({ username, password, ipAddress, userAgent }) {
   return {
     token: accessToken, accessToken, refreshToken, permissions,
     user: {
-      id: student.id, username: student.username, name: student.name, role: 'student',
-      classroomId: student.classroom_id, classroomName: student.classroom_name,
+      id: student.id, email: student.email, name: student.name, role: 'student',
     },
   };
 }
@@ -264,7 +287,7 @@ async function logoutAllSessions({ userId, role }) {
 // NEW: Email verification (admin & teacher only — students have no email)
 // ============================================================================
 async function issueEmailVerificationToken({ userId, role, email, name }) {
-  if (role === 'student') return; // no-op — students have no email on file
+  if (role === 'student') return; // students do not go through email-verification flow (P1)
 
   const rawToken = generateRawToken(32);
   await emailVerificationRepo.invalidateAllForUser(userId, role);
@@ -290,7 +313,7 @@ async function verifyEmail({ token }) {
 
 async function resendVerificationEmail({ email, role }) {
   if (role === 'student') {
-    throw ApiError.badRequest('Students do not have an email on file — this is not applicable.');
+    throw ApiError.badRequest('Email verification resend is not available for students.');
   }
   const repo = REPO_BY_ROLE[role];
   const account = await repo.findByEmail(email);
@@ -379,7 +402,12 @@ function _toProfile(role, account) {
   };
 
   if (role === 'student') {
-    return { ...base, username: account.username, classroomId: account.classroom_id ?? null };
+    return {
+      ...base,
+      username:    account.username ?? null,
+      email:       account.email ?? null,
+      classroomId: account.classroom_id ?? null,
+    };
   }
   return { ...base, email: account.email };
 }

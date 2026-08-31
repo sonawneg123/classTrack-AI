@@ -49,7 +49,8 @@ describe('quizAttemptRepository.upsert', () => {
     const [sql, params] = mockQuery.mock.calls[0];
     expect(sql).toMatch(/INSERT INTO quiz_attempts/i);
     expect(sql).toMatch(/ON CONFLICT.*DO UPDATE/i);
-    expect(params).toEqual([STUDENT_ID, QUESTION_ID, 'Glucose', true, 1.00]);
+    // Sprint 3 Phase 1: practice_session_id added as 6th param (null when not provided)
+    expect(params).toEqual([STUDENT_ID, QUESTION_ID, 'Glucose', true, 1.00, null]);
     expect(result).toEqual(ATTEMPT_ROW);
   });
 

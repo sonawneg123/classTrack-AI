@@ -123,7 +123,7 @@ const reanalyzeSubmission = asyncHandler(async (req, res) => {
 
   // Run outside the response so the teacher doesn't wait on Groq
   aiQueueService.enqueue(async () => {
-    const [taskRows] = await pool.query('SELECT * FROM tasks WHERE id = ?', [sub.task_id]);
+    const [taskRows] = await pool.query('SELECT * FROM tasks WHERE id = $1', [sub.task_id]);
     const task = taskRows[0];
     let result;
     if (sub.file_type === 'image') {
@@ -143,7 +143,7 @@ const resetStudentPassword = asyncHandler(async (req, res) => {
 });
 
 const downloadClassroomReport = asyncHandler(async (req, res) => {
-  const [teacherRows] = await pool.query('SELECT name FROM teachers WHERE id = ?', [req.user.id]);
+  const [teacherRows] = await pool.query('SELECT name FROM teachers WHERE id = $1', [req.user.id]);
   const data = await teacherService.buildClassroomReportData(req.params.classroomId, req.user.id);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${data.classroom.name.replace(/\s+/g,'_')}_report.pdf"`);

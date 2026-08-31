@@ -2,6 +2,7 @@ import { Routes, Route } from "react-router-dom";
 import HomePage from "@pages/HomePage";
 import NotFoundPage from "@pages/NotFoundPage";
 import LoginPage from "@pages/auth/LoginPage";
+import StudentRegisterPage from "@pages/auth/StudentRegisterPage";
 import UnauthorizedPage from "@pages/UnauthorizedPage";
 import ForbiddenPage from "@pages/ForbiddenPage";
 import AdminDashboardPage from "@pages/admin/DashboardPage";
@@ -46,6 +47,7 @@ export default function AppRoutes() {
     <Routes>
       <Route path={ROUTES.ROOT} element={<HomePage />} />
       <Route path={ROUTES.LOGIN} element={<LoginPage />} />
+      <Route path={ROUTES.STUDENT_REGISTER} element={<StudentRegisterPage />} />
       <Route path={ROUTES.UNAUTHORIZED} element={<UnauthorizedPage />} />
       <Route path={ROUTES.FORBIDDEN} element={<ForbiddenPage />} />
 

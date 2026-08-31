@@ -46,6 +46,7 @@ import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import TuneIcon from "@mui/icons-material/Tune";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import SchoolIcon from "@mui/icons-material/School";
 import { DashboardLayout } from "@layouts/DashboardLayout";
 import { NotebookPage, NotebookCard } from "@components/notebook";
 import { EmptyState } from "@components/feedback/EmptyState";
@@ -55,9 +56,13 @@ import type { TopicSelection } from "@components/curriculum/StudentCurriculumNav
 import {
   useGeneratePractice,
   useSubmitPracticeAttempt,
+  useCreateSession,
+  useCompleteSession,
+  useTopicMastery,
 } from "@features/practice/hooks/usePractice";
 import type { Question, QuestionType, QuestionDifficulty } from "@/types/question";
 import type { SubmitAttemptResponse } from "@/types/quizAttempt";
+import type { TopicMastery } from "@/types/practiceSession";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const QUESTION_TYPES: { value: QuestionType; label: string }[] = [
@@ -201,14 +206,62 @@ function PracticeProgress({
   );
 }
 
+// ── Mastery banner ────────────────────────────────────────────────────────────
+function MasteryBanner({ mastery }: { mastery: TopicMastery }) {
+  const levelColor: Record<string, "success" | "warning" | "error"> = {
+    mastered:       "success",
+    progressing:    "warning",
+    needs_practice: "error",
+  };
+  const levelLabel: Record<string, string> = {
+    mastered:       "Mastered",
+    progressing:    "Progressing",
+    needs_practice: "Needs Practice",
+  };
+  const color = levelColor[mastery.mastery_level] ?? "warning";
+  const pct   = Math.round(mastery.mastery_score * 100);
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+        <SchoolIcon color={color} fontSize="small" />
+        <Typography variant="subtitle2" fontWeight={700}>
+          Topic Mastery Updated
+        </Typography>
+        <Chip
+          label={levelLabel[mastery.mastery_level] ?? mastery.mastery_level}
+          size="small"
+          color={color}
+        />
+      </Stack>
+      <LinearProgress
+        variant="determinate"
+        value={pct}
+        color={color}
+        sx={{ height: 8, borderRadius: 1, mb: 0.5 }}
+      />
+      <Stack direction="row" justifyContent="space-between">
+        <Typography variant="caption" color="text.secondary">
+          Mastery: {pct}%
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          Recommended: <strong>{mastery.current_difficulty}</strong>
+        </Typography>
+      </Stack>
+    </Paper>
+  );
+}
+
 // ── All questions finished banner ─────────────────────────────────────────────
 function SessionComplete({
   total,
   correct,
+  mastery,
   onGenerateMore,
 }: {
   total: number;
   correct: number;
+  mastery: TopicMastery | null;
   onGenerateMore: () => void;
 }) {
   const pct = total > 0 ? Math.round((correct / total) * 100) : 0;
@@ -221,6 +274,7 @@ function SessionComplete({
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         You answered {total} question{total !== 1 ? "s" : ""} and scored {correct} correct ({pct}%).
       </Typography>
+      {mastery && <MasteryBanner mastery={mastery} />}
       <Button variant="contained" startIcon={<AutoAwesomeIcon />} onClick={onGenerateMore}>
         Generate More Practice
       </Button>
@@ -241,32 +295,71 @@ export default function PracticePage() {
   const [currentIndex, setCurrentIndex]         = useState(0);
   const [results, setResults]                   = useState<Map<number, SubmitAttemptResponse>>(new Map());
 
-  const generateMutation = useGeneratePractice();
-  const submitMutation   = useSubmitPracticeAttempt();
+  // Sprint 3 Phase 1 — session id + mastery from completed session
+  const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
+  const [completedMastery, setCompletedMastery] = useState<TopicMastery | null>(null);
+
+  const generateMutation  = useGeneratePractice();
+  const submitMutation    = useSubmitPracticeAttempt();
+  const createSession     = useCreateSession();
+  const completeSession   = useCompleteSession();
+
+  // Mastery for the currently selected topic (shown before session starts)
+  const { data: masteryData } = useTopicMastery(topic?.topicId ?? null);
+  const existingMastery = masteryData?.mastery ?? null;
 
   // ── Session stats ─────────────────────────────────────────────────────────────
   const answered   = results.size;
   const correct    = Array.from(results.values()).filter((r) => r.isCorrect === true).length;
   const sessionDone = sessionQuestions.length > 0 && currentIndex >= sessionQuestions.length;
 
+  // Complete the session once all questions are answered
+  useEffect(() => {
+    if (sessionDone && activeSessionId !== null && completedMastery === null) {
+      completeSession.mutate(activeSessionId, {
+        onSuccess: (data) => {
+          setCompletedMastery(data.mastery);
+        },
+      });
+    }
+  }, [sessionDone, activeSessionId, completedMastery]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Handlers ──────────────────────────────────────────────────────────────────
   const handleGenerate = () => {
     if (!topic) return;
 
-    generateMutation.mutate(
+    // Sprint 3 Phase 1: create a session first, then generate questions
+    createSession.mutate(
       {
-        topicId:      topic.topicId,
+        topicId:       topic.topicId,
         questionType,
         difficulty,
-        count,
+        questionCount: count,
       },
       {
-        onSuccess: (data) => {
-          if (data.questions.length > 0) {
-            setSessionQuestions(data.questions);
-            setCurrentIndex(0);
-            setResults(new Map());
-          }
+        onSuccess: (sessionData) => {
+          const newSessionId = sessionData.session.id;
+          setActiveSessionId(newSessionId);
+          setCompletedMastery(null);
+
+          // Now generate the questions
+          generateMutation.mutate(
+            {
+              topicId:      topic.topicId,
+              questionType,
+              difficulty,
+              count,
+            },
+            {
+              onSuccess: (data) => {
+                if (data.questions.length > 0) {
+                  setSessionQuestions(data.questions);
+                  setCurrentIndex(0);
+                  setResults(new Map());
+                }
+              },
+            }
+          );
         },
       }
     );
@@ -275,7 +368,11 @@ export default function PracticePage() {
   const handleSubmit = useCallback(
     (questionId: number, answer: string) => {
       submitMutation.mutate(
-        { questionId, studentAnswer: answer },
+        {
+          questionId,
+          studentAnswer: answer,
+          practiceSessionId: activeSessionId ?? undefined,
+        },
         {
           onSuccess: (result) => {
             setResults((prev) => new Map(prev).set(questionId, result));
@@ -283,7 +380,7 @@ export default function PracticePage() {
         }
       );
     },
-    [submitMutation]
+    [submitMutation, activeSessionId]
   );
 
   const handleNext = () => {
@@ -302,10 +399,14 @@ export default function PracticePage() {
     setSessionQuestions([]);
     setCurrentIndex(0);
     setResults(new Map());
+    setActiveSessionId(null);
+    setCompletedMastery(null);
     generateMutation.reset();
+    createSession.reset();
   };
 
   const currentQuestion = sessionQuestions[currentIndex] ?? null;
+  const isGenerating    = createSession.isPending || generateMutation.isPending;
 
   return (
     <DashboardLayout
@@ -339,6 +440,11 @@ export default function PracticePage() {
           />
         </Stack>
 
+        {/* ── Existing mastery for selected topic ──────────────────────────── */}
+        {existingMastery && !sessionDone && sessionQuestions.length === 0 && (
+          <MasteryBanner mastery={existingMastery} />
+        )}
+
         {/* ── Generation form ───────────────────────────────────────────────── */}
         <NotebookCard title="Generate Practice Questions" sx={{ mb: 3 }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -352,7 +458,7 @@ export default function PracticePage() {
               </Stack>
               <StudentCurriculumNavigator
                 onTopicSelect={setTopic}
-                disabled={generateMutation.isPending}
+                disabled={isGenerating}
               />
               {topic && (
                 <Typography
@@ -373,7 +479,7 @@ export default function PracticePage() {
                   label="Question Type"
                   value={questionType}
                   onChange={(e) => setQuestionType(e.target.value as QuestionType)}
-                  disabled={generateMutation.isPending}
+                  disabled={isGenerating}
                 >
                   {QUESTION_TYPES.map((t) => (
                     <MenuItem key={t.value} value={t.value}>
@@ -389,7 +495,7 @@ export default function PracticePage() {
                   label="Difficulty"
                   value={difficulty}
                   onChange={(e) => setDifficulty(e.target.value as QuestionDifficulty)}
-                  disabled={generateMutation.isPending}
+                  disabled={isGenerating}
                 >
                   {DIFFICULTIES.map((d) => (
                     <MenuItem key={d.value} value={d.value}>
@@ -405,7 +511,7 @@ export default function PracticePage() {
                   label="Count"
                   value={count}
                   onChange={(e) => setCount(Number(e.target.value))}
-                  disabled={generateMutation.isPending}
+                  disabled={isGenerating}
                 >
                   {[1, 3, 5, 10, 15].map((n) => (
                     <MenuItem key={n} value={n}>
@@ -421,20 +527,20 @@ export default function PracticePage() {
               <Button
                 variant="contained"
                 startIcon={
-                  generateMutation.isPending ? (
+                  isGenerating ? (
                     <CircularProgress size={16} color="inherit" />
                   ) : (
                     <AutoAwesomeIcon />
                   )
                 }
                 onClick={handleGenerate}
-                disabled={!topic || generateMutation.isPending}
+                disabled={!topic || isGenerating}
               >
-                {generateMutation.isPending ? "Generating…" : "Generate Practice"}
+                {isGenerating ? "Generating…" : "Generate Practice"}
               </Button>
             </Box>
 
-            {generateMutation.isError && (
+            {(generateMutation.isError || createSession.isError) && (
               <Alert
                 severity="error"
                 action={
@@ -448,7 +554,9 @@ export default function PracticePage() {
                   </Button>
                 }
               >
-                {(generateMutation.error as Error)?.message ?? "Generation failed. Please try again."}
+                {(generateMutation.error as Error | null)?.message
+                  ?? (createSession.error as Error | null)?.message
+                  ?? "Generation failed. Please try again."}
               </Alert>
             )}
 
@@ -484,12 +592,12 @@ export default function PracticePage() {
         </NotebookCard>
 
         {/* ── AI generation progress ──────────────────────────────────────── */}
-        {generateMutation.isPending && (
+        {isGenerating && (
           <GenerationProgress topicName={topic?.topicName ?? null} />
         )}
 
         {/* ── Practice session ─────────────────────────────────────────────── */}
-        {!generateMutation.isPending && sessionQuestions.length > 0 && (
+        {!isGenerating && sessionQuestions.length > 0 && (
           <>
             {/* Progress bar */}
             <PracticeProgress
@@ -503,6 +611,7 @@ export default function PracticePage() {
               <SessionComplete
                 total={sessionQuestions.length}
                 correct={correct}
+                mastery={completedMastery}
                 onGenerateMore={handleGenerateMore}
               />
             ) : (
@@ -541,7 +650,7 @@ export default function PracticePage() {
         )}
 
         {/* ── No topic selected (initial state) ───────────────────────────── */}
-        {!generateMutation.isPending && sessionQuestions.length === 0 && !generateMutation.isError && !generateMutation.isSuccess && (
+        {!isGenerating && sessionQuestions.length === 0 && !generateMutation.isError && !generateMutation.isSuccess && !createSession.isError && (
           <NotebookCard>
             <EmptyState
               icon={<ScienceOutlinedIcon fontSize="inherit" />}

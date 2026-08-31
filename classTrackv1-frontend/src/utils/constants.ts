@@ -12,6 +12,7 @@ export const ROLES = {
 export const ROUTES = {
   ROOT: "/",
   LOGIN: "/login",
+  STUDENT_REGISTER: "/register/student",
   UNAUTHORIZED: "/unauthorized",
   FORBIDDEN: "/forbidden",
   NOT_FOUND: "*",

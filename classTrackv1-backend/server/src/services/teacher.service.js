@@ -221,7 +221,7 @@ async function resetStudentPassword(studentId, teacherId) {
   const [rows] = await require('../database/connection').pool.query(
     `SELECT s.id, s.name FROM students s
      JOIN classrooms c ON c.id = s.classroom_id
-     WHERE s.id = ? AND c.teacher_id = ?`,
+     WHERE s.id = $1 AND c.teacher_id = $2`,
     [studentId, teacherId]
   );
   if (!rows.length) throw ApiError.notFound('Student not found in your classrooms.');
@@ -246,8 +246,8 @@ async function buildClassroomReportData(classroomId, teacherId) {
   const classroom = await _requireOwnedClassroom(classroomId, teacherId);
   const { pool } = require('../database/connection');
 
-  const [tasks]    = await pool.query('SELECT * FROM tasks WHERE classroom_id = ? ORDER BY task_date', [classroomId]);
-  const [students] = await pool.query('SELECT * FROM students WHERE classroom_id = ? ORDER BY name', [classroomId]);
+  const [tasks]    = await pool.query('SELECT * FROM tasks WHERE classroom_id = $1 ORDER BY task_date', [classroomId]);
+  const [students] = await pool.query('SELECT * FROM students WHERE classroom_id = $1 ORDER BY name', [classroomId]);
   const subs       = await submissionRepo.listForClassroom(classroomId);
 
   const studentRows = students.map((student) => {

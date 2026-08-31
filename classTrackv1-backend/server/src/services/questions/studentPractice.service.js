@@ -181,7 +181,22 @@ async function getPracticeQuestion(questionId, studentId) {
  * @param {number} studentId
  * @param {string} studentAnswer
  */
-async function submitPracticeAttempt(questionId, studentId, studentAnswer) {
+/**
+ * Submit an answer to a student practice question.
+ *
+ * Business rules:
+ *   1. Question must have status = 'practice'.
+ *   2. Question must be owned by the student (created_by = studentId).
+ *   3. Auto-scores MCQ / true_false / one_word / fill_blank.
+ *   4. Upserts the attempt (same quiz_attempts table).
+ *   5. If practiceSessionId is provided, links the attempt to that session.
+ *
+ * @param {number} questionId
+ * @param {number} studentId
+ * @param {string} studentAnswer
+ * @param {number|null} [practiceSessionId]  — optional session link
+ */
+async function submitPracticeAttempt(questionId, studentId, studentAnswer, practiceSessionId = null) {
   if (!studentAnswer || !studentAnswer.trim()) {
     throw ApiError.badRequest('Answer cannot be empty.');
   }
@@ -202,23 +217,26 @@ async function submitPracticeAttempt(questionId, studentId, studentAnswer) {
     studentAnswer: studentAnswer.trim(),
     isCorrect,
     score,
+    practiceSessionId,
   });
 
   logger.info('[StudentPractice] Attempt recorded', {
     questionId, studentId, isCorrect, score,
     attemptCount: attempt.attempt_count,
+    practiceSessionId,
   });
 
   return {
-    attemptId:     attempt.id,
+    attemptId:         attempt.id,
     questionId,
-    studentAnswer: attempt.student_answer,
+    studentAnswer:     attempt.student_answer,
     isCorrect,
     score,
-    attemptCount:  attempt.attempt_count,
+    attemptCount:      attempt.attempt_count,
+    practiceSessionId: attempt.practice_session_id,
     // Reveal correct answer + explanation immediately (it's practice)
-    correctAnswer: q.correct_answer,
-    explanation:   q.explanation,
+    correctAnswer:     q.correct_answer,
+    explanation:       q.explanation,
   };
 }
 

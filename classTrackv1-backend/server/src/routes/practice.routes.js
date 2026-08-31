@@ -1,34 +1,45 @@
 /**
  * server/src/routes/practice.routes.js
  *
- * Student AI Practice API — Sprint 6
+ * Student AI Practice API — Sprint 6 + Sprint 3 Phase 1
  *
  * All routes require:
  *   - authenticate (valid JWT)
  *   - authorizeRoles('student')
- *   - authorizePermissions(PERMISSIONS.QUESTION_PRACTICE_GENERATE)
+ *   - appropriate permission
  *
  * Route map:
  *
- *   POST   /practice/generate                         Generate practice questions
- *   GET    /practice/questions                        List my practice questions
- *   GET    /practice/questions/:questionId            Get single practice question
- *   POST   /practice/questions/:questionId/attempt   Submit an answer
- *   GET    /practice/questions/:questionId/attempt   Get my attempt for a question
+ *   POST   /practice/generate                          Generate practice questions
+ *   GET    /practice/questions                         List my practice questions
+ *   GET    /practice/questions/:questionId             Get single practice question
+ *   POST   /practice/questions/:questionId/attempt     Submit an answer
+ *   GET    /practice/questions/:questionId/attempt     Get my attempt for a question
+ *
+ *   Sprint 3 Phase 1 additions:
+ *   POST   /practice/sessions                          Create a practice session
+ *   GET    /practice/sessions/:sessionId               Get a practice session
+ *   POST   /practice/sessions/:sessionId/complete      Complete a session + mastery
+ *   GET    /practice/mastery                           List all my mastery
+ *   GET    /practice/mastery/:topicId                  Get mastery for a topic
  */
 const { Router } = require('express');
-const rateLimit   = require('express-rate-limit');
+const Joi        = require('joi');
+const rateLimit  = require('express-rate-limit');
 
-const controller  = require('../controllers/studentPractice.controller');
-const validator   = require('../validators/question.validator');
-const validate    = require('../middleware/validate.middleware');
+const controller        = require('../controllers/studentPractice.controller');
+const sessionController = require('../controllers/practiceSession.controller');
+const validator         = require('../validators/question.validator');
+const validate          = require('../middleware/validate.middleware');
 const { authenticate, authorizeRoles, authorizePermissions } = require('../middleware/auth.middleware');
 const { PERMISSIONS } = require('../constants/permissions.constants');
 
 const router = Router();
 router.use(authenticate, authorizeRoles('student'));
 
-const CAN_PRACTICE = authorizePermissions(PERMISSIONS.QUESTION_PRACTICE_GENERATE);
+const CAN_PRACTICE       = authorizePermissions(PERMISSIONS.QUESTION_PRACTICE_GENERATE);
+const CAN_SESSION_MANAGE = authorizePermissions(PERMISSIONS.PRACTICE_SESSION_MANAGE);
+const CAN_MASTERY_VIEW   = authorizePermissions(PERMISSIONS.PRACTICE_MASTERY_VIEW);
 
 // ── Rate limiter for generation endpoint ──────────────────────────────────────
 const practiceLimiter = rateLimit({
@@ -39,6 +50,62 @@ const practiceLimiter = rateLimit({
   message: { success: false, message: 'Too many practice requests. Please slow down.' },
   skip: () => process.env.NODE_ENV === 'test',
 });
+
+// ── Session validators ────────────────────────────────────────────────────────
+const sessionIdParam = {
+  params: Joi.object({ sessionId: Joi.number().integer().positive().required() }),
+};
+
+const createSessionBody = {
+  body: Joi.object({
+    topicId:       Joi.number().integer().positive().required(),
+    questionType:  Joi.string().optional().allow(null, ''),
+    difficulty:    Joi.string().valid('easy', 'medium', 'hard').optional().allow(null, ''),
+    questionCount: Joi.number().integer().min(0).optional(),
+  }),
+};
+
+const topicIdParam = {
+  params: Joi.object({ topicId: Joi.number().integer().positive().required() }),
+};
+
+// ── Sprint 3 Phase 1: Practice Sessions ──────────────────────────────────────
+
+router.post(
+  '/sessions',
+  CAN_SESSION_MANAGE,
+  validate(createSessionBody),
+  sessionController.createSession
+);
+
+router.get(
+  '/sessions/:sessionId',
+  CAN_SESSION_MANAGE,
+  validate(sessionIdParam),
+  sessionController.getSession
+);
+
+router.post(
+  '/sessions/:sessionId/complete',
+  CAN_SESSION_MANAGE,
+  validate(sessionIdParam),
+  sessionController.completeSession
+);
+
+// ── Sprint 3 Phase 1: Mastery ─────────────────────────────────────────────────
+
+router.get(
+  '/mastery',
+  CAN_MASTERY_VIEW,
+  sessionController.listMastery
+);
+
+router.get(
+  '/mastery/:topicId',
+  CAN_MASTERY_VIEW,
+  validate(topicIdParam),
+  sessionController.getTopicMastery
+);
 
 // ── Generation ────────────────────────────────────────────────────────────────
 router.post(
