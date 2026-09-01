@@ -1,0 +1,236 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.11 [39m[90mC:/classTrack-AI/classTrackv1-frontend[39m
+
+ [32m✓[39m src/pages/admin/__tests__/DashboardPage.test.tsx[2m > [22mAdminDashboardPage[2m > [22m16. Dashboard renders without crashing[33m 2601[2mms[22m[39m
+ [32m✓[39m src/pages/admin/__tests__/DashboardPage.test.tsx[2m > [22mAdminDashboardPage[2m > [22m17. Loading state shows skeleton elements[33m 970[2mms[22m[39m
+ [32m✓[39m src/pages/admin/__tests__/DashboardPage.test.tsx[2m > [22mAdminDashboardPage[2m > [22m18. Error state shows error message and retry button[33m 2618[2mms[22m[39m
+ [32m✓[39m src/pages/admin/__tests__/DashboardPage.test.tsx[2m > [22mAdminDashboardPage[2m > [22m19. KPI values render from API data[33m 859[2mms[22m[39m
+ [32m✓[39m src/pages/admin/__tests__/DashboardPage.test.tsx[2m > [22mAdminDashboardPage[2m > [22m20. Classroom data renders in table[33m 962[2mms[22m[39m
+ [32m✓[39m src/pages/admin/__tests__/DashboardPage.test.tsx[2m > [22mAdminDashboardPage[2m > [22m21. Activity feed renders[33m 1001[2mms[22m[39m
+ [32m✓[39m src/pages/admin/__tests__/DashboardPage.test.tsx[2m > [22mAdminDashboardPage[2m > [22m22. Alerts render[33m 1140[2mms[22m[39m
+ [32m✓[39m src/pages/admin/__tests__/DashboardPage.test.tsx[2m > [22mAdminDashboardPage[2m > [22m23. Quick actions render navigation buttons[33m 726[2mms[22m[39m
+ [32m✓[39m src/pages/admin/__tests__/DashboardPage.test.tsx[2m > [22mAdminDashboardPage[2m > [22m24. Empty states render when no classroom/activity data[33m 538[2mms[22m[39m
+ [32m✓[39m src/pages/admin/__tests__/DashboardPage.test.tsx[2m > [22mAdminDashboardPage[2m > [22m25. Greeting section renders[33m 689[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22minitialsFor[2m > [22mreturns first + last initials for a two-word name[32m 6[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22minitialsFor[2m > [22mreturns single initial for a single-word name[32m 1[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22minitialsFor[2m > [22mreturns first + last for multi-word names[32m 1[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22minitialsFor[2m > [22mhandles empty string gracefully[32m 2[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22minitialsFor[2m > [22mis uppercased[32m 1[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22mUserAvatar[2m > [22mrenders initials when no avatarUrl is provided[33m 454[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22mUserAvatar[2m > [22mrenders initials when avatarUrl is undefined[32m 20[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22mUserAvatar[2m > [22mrenders an <img> when avatarUrl is provided[33m 844[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22mUserAvatar[2m > [22mfalls back to initials when image fails to load[32m 274[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22mUserAvatar[2m > [22mshows a skeleton when loading=true[32m 65[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22mUserAvatar[2m > [22mdoes not show skeleton when loading=false[32m 18[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22mUserAvatar[2m > [22mapplies the correct size (xl)[32m 36[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22mUserAvatar[2m > [22mrenders alt text from name by default[32m 125[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/UserAvatar.test.tsx[2m > [22mUserAvatar[2m > [22mrenders custom alt text when provided[32m 85[2mms[22m[39m
+ [32m✓[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 1 — missing token in URL[2m > [22mshows the 'Invalid reset link' screen when no token query param is present[33m 3292[2mms[22m[39m
+ [32m✓[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 2 — invalid / expired token[2m > [22mshows the 'Reset link expired' screen when validateResetToken rejects[33m 997[2mms[22m[39m
+ [32m✓[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 3 — used / already-consumed token[2m > [22mshows the same generic 'Reset link expired' screen for a used token[33m 425[2mms[22m[39m
+ [32m✓[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 4 — valid token shows the reset form[2m > [22mrenders the password reset form when the token is valid[33m 2510[2mms[22m[39m
+ [32m✓[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 5 — account identity displayed from backend[2m > [22mshows name and email returned by the backend — not from the URL[33m 422[2mms[22m[39m
+ [31m×[39m src/pages/auth/__tests__/TeacherRegisterPage.test.tsx[2m > [22mTeacherRegisterPage[2m > [22mrenders the registration form with all required fields[33m 5883[2mms[22m[39m
+[31m   → Found multiple elements with the text: /teacher registration/i
+
+Here are the matching elements:
+
+Ignored nodes: comments, script, style
+[36m<h6[31m
+  [33mclass[31m=[32m"MuiTypography-root MuiTypography-h6 css-fe0fwj-MuiTypography-root"[31m
+[36m>[31m
+  [0mTeacher Registration[0m
+[36m</h6>[31m
+
+Ignored nodes: comments, script, style
+[36m<p[31m
+  [33mclass[31m=[32m"MuiTypography-root MuiTypography-body2 css-1wle3ir-MuiTypography-root"[31m
+[36m>[31m
+  [0mFill in your details. You will need a teacher registration code from your administrator.[0m
+[36m</p>[31m
+
+Ignored nodes: comments, script, style
+[36m<label[31m
+  [33mclass[31m=[32m"MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-sizeMedium MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-sizeMedium MuiInputLabel-outlined css-19qnlrw-MuiFormLabel-root-MuiInputLabel-root"[31m
+  [33mdata-shrink[31m=[32m"false"[31m
+  [33mfor[31m=[32m"_r_3_"[31m
+  [33mid[31m=[32m"_r_3_-label"[31m
+[36m>[31m
+  [0mTeacher Registration Code[0m
+[36m</label>[31m
+
+Ignored nodes: comments, script, style
+[36m<span>[31m
+  [0mTeacher Registration Code[0m
+[36m</span>[31m
+
+(If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or `findAllByText`)).
+
+Ignored nodes: comments, script, style
+[36m<body>[31m
+  [36m<div>[31m
+    [36m<div[31m
+      [33mclass[31m=[32m"MuiBox-root css-1kvixcm"[31m
+    [36m>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"MuiPaper-root MuiPaper-elevation MuiPaper-rounded MuiPaper-elevation0 css-rnjg71-MuiPaper-root"[31m
+        [33mstyle[31m=[32m"--Paper-shadow: none;"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"MuiStack-root css-1txte0x-MuiStack-root"[31m
+        [36m>[31m
+          [36m<h4[31m
+            [33mclass[31m=[32m"MuiTypography-root MuiTypography-h4 css-f84ov1-MuiTypography-root"[31m
+          [36m>[31m
+            [0mClassTrack AI[0m
+          [36m</h4>[31m
+          [36m<h6[31m
+            [33mclass[31m=[32m"MuiTypography-root MuiTypography-h6 css-fe0fwj-MuiTypography-root"[31m
+          [36m>[31m
+            [0mTeacher Registration[0m
+          [36m</h6>[31m
+          [36m<p[31m
+            [33mclass[31m=[32m"MuiTypography-root MuiTypography-body2 css-1wle3ir-MuiTypography-root"[31m
+          [36m>[31m
+            [0mFill in your details. You will need a teacher registration code from your administrator.[0m
+          [36m</p>[31m
+        [36m</div>[31m
+        [36m<form[31m
+          [33mclass[31m=[32m"MuiBox-root css-1v8my8o"[31m
+          [33mnovalidate[31m=[32m""[31m
+        [36m>[31m
+          [36m<div[31m
+            [33mclass[31m=[32m"MuiFormControl-root MuiFormControl-fullWidth MuiTextField-root css-cmpglg-MuiFormControl-root-MuiTextField-root"[31m
+          [36m>[31m
+            [36m<label[31m
+              [33mclass[31m=[32m"MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeMedium MuiInputLabel-outlined MuiFormLabel-colorPrimary Mui-focused MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeMedium MuiInputLabel-outlined css-113d811-MuiFormLabel-root-MuiInputLabel-root"[31m
+              [33mdata-shrink[31m=[32m"true"[31m
+              [33mfor[31m=[32m"_r_0_"[31m
+              [33mid[31m=[32m"_r_0_-label"[31m
+            [36m>[31m
+              [0mFull name[0m
+            [36m</label>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-fullWidth Mui-focused MuiInputBase-formControl css-1blp12k-MuiInputBase-root-MuiOutlinedInput-root"[31m
+            [36m>[31m
+              [36m<input[31m
+                [33maria-invalid[31m=[32m"false"[31m
+                [33mautocomplete[31m=[32m"name"[31m
+                [33mclass[31m=[32m"MuiInputBase-input MuiOutlinedInput-input css-16wblaj-MuiInputBase-input-MuiOutlinedInput-input"[31m
+                [33mid[31m=[32m"_r_0_"[31m
+                [33mname[31m=[32m"name"[31m
+                [33mtype[31m=[32m"text"[31m
+              [36m/>[31m
+              [36m<fieldset[31m
+                [33maria-hidden[31m=[32m"true"[31m
+                [33mclass[31m=[32m"MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline"[31m
+              [36m>[31m
+                [36m<legend[31m
+                  [33mclass[31m=[32m"css-ex8a5f-MuiNotchedOutlined-root"[31m
+                [36m>[31m
+                  [36m<span>[31m
+                    [0mFull name[0m
+                  [36m</span>[31m
+                [36m</legend>[31m
+              [36m</fieldset>[31m
+            [36m</div>[31m
+          [36m</div>[31m
+          [36m<div[31m
+            [33mclass[31m=[32m"MuiFormControl-root MuiFormControl-fullWidth MuiTextField-root css-cmpglg-MuiFormControl-root-MuiTextField-root"[31m
+          [36m>[31m
+            [36m<label[31m
+              [33mclass[31m=[32m"MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-sizeMedium MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-sizeMedium MuiInputLabel-outlined css-19qnlrw-MuiFormLabel-root-MuiInputLabel-root"[31m
+              [33mdata-shrink[31m=[32m"false"[31m
+              [33mfor[31m=[32m"_r_1_"[31m
+              [33mid[31m=[32m"_r_1_-label"[31m
+            [36m>[31m
+              [0mEmail address[0m
+            [36m</label>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-fullWidth MuiInputBase-formControl css-1blp12k-MuiInputBase-root-MuiOutlinedInput-root"[31m
+            [36m>[31m
+              [36m<input[31m
+                [33maria-invalid[31m=[32m"false"[31m
+                [33mautocomplete[31m=[32m"email"[31m
+                [33mclass[31m=[32m"MuiInputBase-input MuiOutlinedInput-input css-16wblaj-MuiInputBase-input-MuiOutlinedInput-input"[31m
+                [33mid[31m=[32m"_r_1_"[31m
+                [33mname[31m=[32m"email"[31m
+                [33mtype[31m=[32m"email"[31m
+              [36m/>[31m
+              [36m<fieldset[31m
+                [33maria-hidden[31m=[32m"true"[31m
+                [33mclass[31m=[32m"MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline"[31m
+              [36m>[31m
+                [36m<legend[31m
+                  [33mclass[31m=[32m"css-1n64csd-MuiNotchedOutlined-root"[31m
+                [36m>[31m
+                  [36m<span>[31m
+                    [0mEmail address[0m
+                  [36m</span>[31m
+                [36m</legend>[31m
+              [36m</fieldset>[31m
+            [36m</div>[31m
+          [36m</div>[31m
+          [36m<div[31m
+            [33mclass[31m=[32m"MuiFormControl-root MuiFormControl-fullWidth MuiTextField-root css-cmpglg-MuiFormControl-root-MuiTextField-root"[31m
+          [36m>[31m
+            [36m<label[31m
+              [33mclass[31m=[32m"MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-sizeMedium MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-sizeMedium MuiInputLabel-outlined css-19qnlrw-MuiFormLabel-root-MuiInputLabel-root"[31m
+              [33mdata-shrink[31m=[32m"false"[31m
+              [33mfor[31m=[32m"_r_2_"[31m
+              [33mid[31m=[32m"_r_2_-label"[31m
+            [36m>[31m
+              [0mMobile number (optional)[0m
+            [36m</label>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-fullWidth MuiInputBase-formControl css-1blp12k-MuiInputBase-root-MuiOutlinedInput-root"[31m
+            [36m>[31m
+              [36m<input[31m
+                [33maria-describedby[31m=...[39m
+ [32m✓[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 6 — empty password blocked by validation[2m > [22mshows validation error when submitting with empty passwords[33m 1140[2mms[22m[39m
+ [32m✓[39m src/pages/auth/__tests__/TeacherRegisterPage.test.tsx[2m > [22mTeacherRegisterPage[2m > [22mshows validation errors when form is submitted empty[33m 2574[2mms[22m[39m
+ [31m×[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 7 — password mismatch[2m > [22mshows 'Passwords do not match.' when confirm password differs[33m 5087[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m×[39m src/pages/auth/__tests__/TeacherRegisterPage.test.tsx[2m > [22mTeacherRegisterPage[2m > [22mshows password mismatch error[33m 5078[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m×[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 8 — valid matching passwords submit successfully[2m > [22mcalls resetPassword when both password fields match[33m 5130[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m×[39m src/pages/auth/__tests__/TeacherRegisterPage.test.tsx[2m > [22mTeacherRegisterPage[2m > [22mshows loading state during submission[33m 5050[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m×[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 9 — submit button disabled while submitting[2m > [22mdisables the Reset Password button while the request is in-flight[33m 5043[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m×[39m src/pages/auth/__tests__/TeacherRegisterPage.test.tsx[2m > [22mTeacherRegisterPage[2m > [22mshows success state after successful registration[33m 5019[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m×[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 10 — successful reset shows success screen[2m > [22mshows the success screen with a 'Sign in' link after successful reset[33m 5070[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m×[39m src/pages/auth/__tests__/TeacherRegisterPage.test.tsx[2m > [22mTeacherRegisterPage[2m > [22mdisplays API error message on failure[33m 5066[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m×[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 11 — backend error on reset submit[2m > [22mshows an inline error alert when resetPassword returns a 400 error[33m 5287[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m×[39m src/pages/auth/__tests__/TeacherRegisterPage.test.tsx[2m > [22mTeacherRegisterPage[2m > [22mdisplays generic error for invalid teacher code[33m 5063[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m×[39m src/pages/auth/__tests__/TeacherRegisterPage.test.tsx[2m > [22mTeacherRegisterPage[2m > [22mstores tokens after successful registration[33m 5019[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m×[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 11 — backend error on reset submit[2m > [22mnever shows internal server error details to the user — maps to generic message[33m 5092[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m×[39m src/pages/auth/__tests__/ResetPasswordPage.test.tsx[2m > [22mTest 12 — navigation to login after successful reset[2m > [22mnavigates to /login when the 'Sign in' link is clicked after successful reset[33m 5023[2mms[22m[39m
+[31m   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+
+[2m Test Files [22m [1m[31m3 failed[39m[22m[2m | [22m[1m[32m2 passed[39m[22m[90m (5)[39m
+[2m      Tests [22m [1m[31m14 failed[39m[22m[2m | [22m[1m[32m31 passed[39m[22m[90m (45)[39m
+[2m   Start at [22m 07:14:41
+[2m   Duration [22m 783.02s[2m (transform 872.84s, setup 10.84s, import 1473.96s, tests 97.39s, environment 40.44s)[22m
+

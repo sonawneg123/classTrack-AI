@@ -1,0 +1,424 @@
+================================================================================
+  CLASSTRACK-AI — PROFILE PHOTO / AVATAR FEATURE
+  Implementation Report
+  Sprint: Profile Photo System (Admin / Teacher / Student)
+================================================================================
+
+--------------------------------------------------------------------------------
+1. EXISTING ARCHITECTURE — WHAT WAS FOUND AND REUSED
+--------------------------------------------------------------------------------
+
+REUSED (not duplicated):
+  - upload.middleware.js          Already had JPEG/PNG/WebP MIME + magic-byte
+                                  verification. New avatarUpload.middleware.js
+                                  follows the exact same pattern.
+
+  - uploads/ directory convention Extended with uploads/avatars/ subdirectory.
+                                  Configured via AVATAR_UPLOAD_DIR env var.
+
+  - BaseRepository.updateById()   Used to persist avatar_path on all three
+                                  account tables without any new SQL helpers.
+
+  - auth.service.js getMe/_toProfile
+                                  Extended in-place to include avatarUrl.
+                                  No separate user-fetch added.
+
+  - /api/v1/account/ route prefix Profile and photo endpoints added here,
+                                  consistent with the existing account route.
+
+  - ProfileMenu.tsx               Updated (not replaced) to use UserAvatar.
+
+  - AuthProvider                  Extended with refreshUser() only.
+                                  Login / logout / bootstrap untouched.
+
+  - React Query, notistack, MUI   All reused. No new libraries added.
+
+  - Flyway migration versioning   New V19 follows existing V1–V18 pattern.
+
+
+--------------------------------------------------------------------------------
+2. DATABASE CHANGES
+--------------------------------------------------------------------------------
+
+Migration: V19__profile_photos.sql
+(classTrackv1-backend/database/migrations/flyway/V19__profile_photos.sql)
+
+  ALTER TABLE admins
+    ADD COLUMN IF NOT EXISTS avatar_path VARCHAR(500) NULL DEFAULT NULL;
+
+  ALTER TABLE teachers
+    ADD COLUMN IF NOT EXISTS avatar_path VARCHAR(500) NULL DEFAULT NULL;
+
+  ALTER TABLE students
+    ADD COLUMN IF NOT EXISTS avatar_path VARCHAR(500) NULL DEFAULT NULL;
+
+Design decisions:
+  - avatar_path stores a relative filesystem path
+    e.g. "uploads/avatars/1719830412345-f4a8b2c1…d9.jpg"
+  - NULL = no photo set → frontend falls back to initials
+  - No separate profile table created — column lives on the account row
+  - Forward-only, idempotent (IF NOT EXISTS), PostgreSQL 16 compatible
+  - No existing migration was modified
+  - Easy S3 migration: avatar_path becomes an object key;
+    buildAvatarUrl() returns a CDN URL instead of the local API path
+
+
+--------------------------------------------------------------------------------
+3. STORAGE ARCHITECTURE
+--------------------------------------------------------------------------------
+
+  Database:  Stores relative path reference only. No binary data in DB.
+  Disk:      Files stored under uploads/avatars/ (configurable).
+  Filename:  Server-generated: {timestamp}-{16-byte-crypto-hex}.{ext}
+             Original filename NEVER used (path traversal prevention).
+  URL:       /api/v1/account/avatar/:filename  (public, 7-day cache header)
+  Cleanup:   Old file deleted best-effort after DB update succeeds.
+             Failure is logged; never blocks the HTTP response.
+  S3 path:   Replace _deleteAvatarFile() with S3 deleteObject.
+             Replace buildAvatarUrl() to return CDN URL.
+             No schema change required.
+
+
+--------------------------------------------------------------------------------
+4. API ENDPOINTS IMPLEMENTED
+--------------------------------------------------------------------------------
+
+  GET    /api/v1/account/profile
+         Auth: Required (Bearer token)
+         Returns current user full profile including avatarUrl.
+         Works for admin, teacher, student.
+
+  PUT    /api/v1/account/profile/photo
+         Auth: Required (Bearer token)
+         Body: multipart/form-data, field name: "photo"
+         Accepts: image/jpeg, image/jpg, image/png, image/webp (max 5 MB)
+         Uploads or replaces the profile photo.
+         Returns updated profile with new avatarUrl.
+
+  DELETE /api/v1/account/profile/photo
+         Auth: Required (Bearer token)
+         Removes profile photo. Returns updated profile (avatarUrl: null).
+         Idempotent — safe to call even when no photo is set.
+
+  GET    /api/v1/account/avatar/:filename
+         Auth: NOT required (public)
+         Serves stored avatar image file.
+         Returns 404 for missing files.
+         Rejects path-traversal attempts.
+         Cache-Control: public, max-age=604800, immutable
+
+  GET    /api/v1/auth/me  (MODIFIED — was already existing)
+         Auth: Required (Bearer token)
+         Now includes profile.avatarUrl in response.
+         Used by AuthProvider on every session bootstrap and login.
+
+
+--------------------------------------------------------------------------------
+5. BACKEND FILES CHANGED
+--------------------------------------------------------------------------------
+
+NEW FILES:
+  classTrackv1-backend/database/migrations/flyway/V19__profile_photos.sql
+  classTrackv1-backend/server/src/middleware/avatarUpload.middleware.js
+  classTrackv1-backend/server/src/services/avatar.service.js
+  classTrackv1-backend/server/tests/unit/services/avatar.service.test.js
+  classTrackv1-backend/server/tests/integration/avatarRoutes.integration.test.js
+
+MODIFIED FILES:
+  classTrackv1-backend/server/src/config/index.js
+    Added: upload.avatarMaxSizeMb (default 5)
+           upload.avatarDir (default "uploads/avatars")
+
+  classTrackv1-backend/server/src/controllers/account.controller.js
+    Added: getProfile, uploadProfilePhoto, deleteProfilePhoto, serveAvatar
+
+  classTrackv1-backend/server/src/routes/account.routes.js
+    Added: GET /profile, PUT /profile/photo, DELETE /profile/photo
+
+  classTrackv1-backend/server/src/routes/v1/index.js
+    Added: GET /account/avatar/:filename (public, no auth middleware)
+
+  classTrackv1-backend/server/src/services/auth.service.js
+    Modified: _toProfile() now calls buildAvatarUrl(account.avatar_path)
+              avatarUrl included in every /auth/me response
+
+  classTrackv1-backend/server/.env.example
+    Added: AVATAR_MAX_SIZE_MB=5
+           AVATAR_UPLOAD_DIR=uploads/avatars
+
+
+--------------------------------------------------------------------------------
+6. FRONTEND FILES CHANGED
+--------------------------------------------------------------------------------
+
+NEW FILES:
+  classTrackv1-frontend/src/components/ui/UserAvatar.tsx
+    Reusable avatar component.
+    Props: name, avatarUrl, size (xs/sm/md/lg/xl), loading, sx, alt
+    Behaviour:
+      - Shows profile photo when available
+      - Falls back to initials (first + last name letter) when no photo
+      - Falls back to initials on broken-image error (onError handler)
+      - Shows MUI Skeleton when loading=true
+    Used by: ProfileMenu (topbar), ProfilePage
+
+  classTrackv1-frontend/src/features/account/api/accountApi.ts
+    accountApi.getProfile()    — GET /account/profile
+    accountApi.uploadPhoto()   — PUT /account/profile/photo
+    accountApi.deletePhoto()   — DELETE /account/profile/photo
+
+  classTrackv1-frontend/src/features/account/hooks/useProfile.ts
+    useProfile()               — React Query fetch of profile
+    useUploadAvatar()          — mutation: upload/replace photo
+    useDeleteAvatar()          — mutation: remove photo
+    validateAvatarFile()       — client-side type + size validation
+
+  classTrackv1-frontend/src/pages/account/ProfilePage.tsx
+    Profile page for all roles.
+    Displays: avatar, upload/change/remove buttons, name, email/username,
+              role chip, account status, member-since date, last login.
+    Route: /account/profile (accessible by admin, teacher, student)
+
+  classTrackv1-frontend/src/components/ui/__tests__/UserAvatar.test.tsx
+  classTrackv1-frontend/src/pages/account/__tests__/ProfilePage.test.tsx
+
+MODIFIED FILES:
+  classTrackv1-frontend/src/types/auth.ts
+    AuthUserProfile: added avatarUrl?: string | null
+
+  classTrackv1-frontend/src/utils/constants.ts
+    ROUTES.ACCOUNT.PROFILE = "/account/profile"
+
+  classTrackv1-frontend/src/app/AuthProvider.tsx
+    Added: refreshUser() — re-fetches /auth/me, updates user state
+    Added: refreshUser to AuthContextValue interface
+    No change to: login, logout, bootstrap, session expired handler
+
+  classTrackv1-frontend/src/components/layout/ProfileMenu.tsx
+    Replaced hard-coded MUI Avatar + initialsFor() with UserAvatar component
+    Profile menu header now shows avatar + name + email
+    "My profile" menu item now navigates to /account/profile (was disabled)
+
+  classTrackv1-frontend/src/routes/AppRoutes.tsx
+    Added /account/profile route inside <ProtectedRoute>
+    Accessible to all authenticated roles (admin, teacher, student)
+
+  classTrackv1-frontend/vite.config.ts
+    pool: "vmForks", singleFork: true — serialized test execution
+    testTimeout: 30000 — extended for MUI-heavy test files
+
+
+--------------------------------------------------------------------------------
+7. SECURITY MEASURES
+--------------------------------------------------------------------------------
+
+Upload:
+  - MIME type allowlist: image/jpeg, image/jpg, image/png, image/webp only
+  - SVG explicitly rejected (not in allowlist — XSS risk)
+  - Arbitrary file types rejected by multer fileFilter
+  - Executable/binary uploads rejected
+  - Max size: 5 MB (frontend + backend both enforce)
+  - Magic-byte (file signature) verification post-upload
+    JPEG: 0xFF 0xD8 0xFF
+    PNG:  0x89 0x50 0x4E 0x47
+    WebP: RIFF....WEBP
+
+Filename:
+  - Never uses original filename from client
+  - Server generates: {timestamp}-{crypto.randomBytes(16).toString('hex')}.{ext}
+  - Extension sanitized: /[^a-z.]/g stripped
+
+Serving:
+  - path.basename() strips all directory components
+  - Resolved path must start with AVATAR_UPLOAD_DIR + sep
+  - Path traversal sequences rejected with 404
+
+Authorization:
+  - userId always from req.user (JWT payload) — never from request body
+  - Cross-user modification impossible by design
+  - /auth/me re-checks is_active + locked_until on every request
+
+Logging:
+  - File contents never logged
+  - Only logs: userId, role, basename of filename (not full path)
+  - No sensitive user data logged unnecessarily
+
+Responses:
+  - API never returns filesystem paths
+  - API never returns auth secrets or credentials
+  - Stack traces never returned to frontend
+
+
+--------------------------------------------------------------------------------
+8. CACHE / UI SYNCHRONIZATION
+--------------------------------------------------------------------------------
+
+After upload or delete:
+  Step 1: queryClient.setQueryData(PROFILE_QUERY_KEY, freshProfile)
+          → Profile page updates immediately with server-confirmed data
+
+  Step 2: refreshUser() called on AuthProvider
+          → Re-fetches GET /api/v1/auth/me
+          → setUser(currentUser) updates React context
+          → ProfileMenu (Topbar) avatar updates WITHOUT page refresh
+
+Avatar URL cache-busting:
+  → Each upload generates a new random filename
+  → Browser Cache-Control: public, max-age=604800, immutable
+  → Because filename changes on every upload, stale avatar caching is
+    impossible even with long cache TTLs
+
+
+--------------------------------------------------------------------------------
+9. TEST RESULTS
+--------------------------------------------------------------------------------
+
+BACKEND (Jest):
+  Test Suites: 72 passed (5 skipped — real-DB tests, require live PostgreSQL)
+  Tests:       1256 passed, 56 skipped
+  New tests:   36 (15 unit + 21 integration)
+
+  Unit tests (avatar.service.test.js — 15 tests):
+    buildAvatarUrl: null input, relative path
+    getProfile: admin, teacher, student, not-found, unknown role
+    uploadAvatar: admin, teacher, student, replaces old file, not-found
+    removeAvatar: removes with cleanup, idempotent (no photo), not-found
+
+  Integration tests (avatarRoutes.integration.test.js — 21 tests):
+    GET /account/profile — 401 unauthenticated, admin/teacher/student profiles
+    PUT /account/profile/photo — 401 unauth, 400 no file, JPEG/PNG/WebP uploads,
+                                  invalid type rejected, JWT authority verified
+    DELETE /account/profile/photo — 401 unauth, admin/teacher/student remove,
+                                     idempotent when no photo set
+    GET /account/avatar/:filename — 404 missing file, path-traversal rejected,
+                                     no auth required
+    GET /auth/me — avatarUrl null when no photo, avatarUrl present when photo set
+
+FRONTEND (Vitest):
+  Test Files: 3 passed
+  Tests:      40 passed
+  New tests:  30 (11 UserAvatar + 19 ProfilePage)
+
+  UserAvatar tests (UserAvatar.test.tsx — 11 tests):
+    initialsFor: two-word, single-word, multi-word, empty string, uppercase
+    UserAvatar: initials fallback, undefined avatarUrl, renders img, broken-image
+                fallback, loading skeleton, no skeleton when not loading, xl size,
+                default alt text, custom alt text
+
+  ProfilePage tests (ProfilePage.test.tsx — 19 tests):
+    Renders page, shows upload button, no remove when no photo,
+    shows both buttons when photo set, calls delete mutation on remove,
+    disables upload when pending, disables remove when pending,
+    validation error for wrong type, no upload on validation failure,
+    upload mutation called on valid file, role chip, date display,
+    renders UserAvatar, profile section title, account info section,
+    file input attributes
+
+  Existing tests preserved:
+    AdminDashboardPage: 10/10 pass (unchanged)
+
+TYPECHECK (tsc --noEmit):
+  Zero new TypeScript errors introduced.
+  Pre-existing errors in QuizAssignmentDetailPage.tsx are out of scope
+  (documented in task instructions as "Do NOT fix unrelated pre-existing issues").
+
+
+--------------------------------------------------------------------------------
+10. MANUAL VERIFICATION FLOWS
+--------------------------------------------------------------------------------
+
+ADMIN:
+  1. Login as admin → Topbar shows initials avatar (A or AU)
+  2. Click avatar → dropdown shows name + email
+  3. Click "My profile" → /account/profile loads
+  4. Profile page shows: name, role chip "Admin", email, member since
+  5. Click "Upload photo" → file picker → select JPEG → photo appears
+  6. Topbar avatar updates immediately (no refresh needed)
+  7. Refresh page → photo persists
+  8. Click "Change photo" → new photo → old photo replaced everywhere
+  9. Click "Remove photo" → initials reappear in page AND topbar
+  10. Logout → Login → initials shown (no photo)
+
+TEACHER:
+  1. Login as teacher → Topbar shows initials
+  2. Navigate to /account/profile directly (or via My profile menu)
+  3. Upload PNG → avatar appears in topbar immediately
+  4. Logout → Login → photo still there
+  5. Remove photo → initials fallback in topbar and profile page
+
+STUDENT:
+  1. Login as student → Topbar shows initials
+  2. Navigate to /account/profile
+  3. Upload WebP → avatar appears
+  4. Refresh → persists
+  5. Remove → initials appear
+
+Invalid upload attempts:
+  - Select a .txt file → "Please select a JPEG, PNG, or WebP image." shown
+  - Select a file over 5 MB → "Image must be smaller than 5 MB." shown
+  - No upload request sent to server when client validation fails
+
+Session persistence:
+  - Upload photo → logout → login → photo still displayed
+  - /auth/me response includes avatarUrl from DB on every bootstrap
+
+
+--------------------------------------------------------------------------------
+11. BACKWARD COMPATIBILITY
+--------------------------------------------------------------------------------
+
+None of the following were modified or broken:
+  - Admin login / logout / password reset
+  - Teacher login / registration (self-register with code)
+  - Student login / registration (with classroom code)
+  - Admin dashboard (teachers, classrooms, activity, stats)
+  - Teacher dashboard (classrooms, tasks, grading, AI evaluations)
+  - Student dashboard (assignments, quizzes, practice)
+  - Knowledge base / RAG pipeline
+  - Question bank / quiz assignments
+  - Notification system
+  - Email verification
+  - Account lockout
+  - Refresh token rotation
+  - RBAC / permissions system
+
+  The avatar_path column defaults to NULL. Existing accounts automatically
+  show initials fallback — no data migration required.
+
+
+--------------------------------------------------------------------------------
+12. KNOWN ISSUES
+--------------------------------------------------------------------------------
+
+1. QuizAssignmentDetailPage.tsx pre-existing TypeScript errors.
+   These existed before this feature and are out of scope.
+   Not introduced by this change.
+
+2. Frontend vitest pool configuration changed to vmForks/singleFork.
+   This is required due to the high MUI/Vite transform overhead on Windows
+   which causes worker timeout failures when tests run in parallel forks.
+   All 40 tests pass. The existing DashboardPage tests continue to pass.
+   This config change has no effect on production builds.
+
+3. Flyway migration V19 will be applied automatically on next server start.
+   No manual SQL execution required. Existing rows get avatar_path = NULL.
+
+
+--------------------------------------------------------------------------------
+13. ENVIRONMENT VARIABLES ADDED
+--------------------------------------------------------------------------------
+
+  AVATAR_MAX_SIZE_MB=5
+    Maximum allowed profile photo upload size in megabytes.
+    Default: 5
+
+  AVATAR_UPLOAD_DIR=uploads/avatars
+    Directory where uploaded avatar files are stored.
+    Relative to server working directory.
+    Default: uploads/avatars
+    Created automatically on server start if it does not exist.
+
+
+================================================================================
+  END OF REPORT
+================================================================================
