@@ -27,6 +27,8 @@ const { isValidUsername } = require('../utils/username.util');
 const { normalizeMobile } = require('../utils/mobile.util');
 const logger  = require('../utils/logger.util');
 
+const { buildAvatarUrl } = require('./avatar.service');
+
 // Repositories
 const adminRepo    = require('../repositories/admin.repository');
 const teacherRepo  = require('../repositories/teacher.repository');
@@ -572,9 +574,10 @@ module.exports = {
  */
 function _toProfile(role, account) {
   const base = {
-    isActive:  Boolean(account.is_active),
-    createdAt: account.created_at ?? null,
+    isActive:    Boolean(account.is_active),
+    createdAt:   account.created_at ?? null,
     lastLoginAt: account.last_login_at ?? null,
+    avatarUrl:   buildAvatarUrl(account.avatar_path ?? null),
   };
 
   if (role === 'student') {

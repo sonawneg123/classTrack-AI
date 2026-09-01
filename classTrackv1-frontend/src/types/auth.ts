@@ -5,6 +5,8 @@ export interface AuthUserProfile {
   isActive: boolean;
   createdAt: string | null;
   lastLoginAt: string | null;
+  /** Public URL for the user's profile photo, or null if none is set. */
+  avatarUrl?: string | null;
   // admin / teacher only
   email?: string | null;
   emailVerifiedAt?: string | null;

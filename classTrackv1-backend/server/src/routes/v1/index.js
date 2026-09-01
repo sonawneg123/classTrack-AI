@@ -21,8 +21,12 @@ const studentKnowledgeRoutes  = require('../studentKnowledge.routes');
 const questionRoutes          = require('../question.routes');
 const practiceRoutes          = require('../practice.routes');
 const quizRoutes              = require('../quiz.routes');
+const controller              = require('../../controllers/account.controller');
 
 router.use('/auth',             authRoutesV1);
+// Public avatar file serving — no authenticate middleware.
+// Filenames are random-hex, so unguessable without DB access.
+router.get('/account/avatar/:filename', controller.serveAvatar);
 router.use('/account',          accountRoutes);
 router.use('/admin',            adminRoutes);
 router.use('/teacher',          teacherRoutes);

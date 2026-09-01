@@ -28,6 +28,12 @@ interface AuthContextValue {
     credentials: EmailLoginPayload | StudentLoginPayload
   ) => Promise<AuthUser>;
   logout: () => Promise<void>;
+  /**
+   * Re-fetches /auth/me and updates the in-memory user object.
+   * Call this after profile photo changes so avatarUrl propagates
+   * everywhere in the app immediately without a page refresh.
+   */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -129,6 +135,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     enqueueSnackbar("You've been logged out.", { variant: "success" });
   }, [enqueueSnackbar]);
 
+  /**
+   * Re-fetches /auth/me and updates the AuthContext user state.
+   * Best-effort — silently ignores errors to avoid disrupting the session.
+   */
+  const refreshUser = useCallback(async () => {
+    try {
+      const currentUser = await authApi.getCurrentUser();
+      setUser(currentUser);
+    } catch {
+      // Silently ignore — e.g. if token expired, the existing interceptor
+      // will handle forced logout on the next real API call.
+    }
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -136,8 +156,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: status === "authenticated",
       login,
       logout,
+      refreshUser,
     }),
-    [user, status, login, logout]
+    [user, status, login, logout, refreshUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

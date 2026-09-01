@@ -1,6 +1,7 @@
 import { Routes, Route } from "react-router-dom";
 import HomePage from "@pages/HomePage";
 import NotFoundPage from "@pages/NotFoundPage";
+import ProfilePage from "@pages/account/ProfilePage";
 import LoginPage from "@pages/auth/LoginPage";
 import StudentRegisterPage from "@pages/auth/StudentRegisterPage";
 import TeacherRegisterPage from "@pages/auth/TeacherRegisterPage";
@@ -61,6 +62,9 @@ export default function AppRoutes() {
       <Route path={ROUTES.FORBIDDEN} element={<ForbiddenPage />} />
 
       <Route element={<ProtectedRoute />}>
+        {/* Profile — accessible by all authenticated roles */}
+        <Route path={ROUTES.ACCOUNT.PROFILE} element={<ProfilePage />} />
+
         <Route element={<RoleRoute allowedRoles={["admin"]} />}>
           <Route path={ROUTES.ADMIN.DASHBOARD} element={<AdminDashboardPage />} />
           <Route path={ROUTES.ADMIN.TEACHERS} element={<AdminTeachersPage />} />

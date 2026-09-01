@@ -12,6 +12,9 @@ export const ROLES = {
 export const ROUTES = {
   ROOT: "/",
   LOGIN: "/login",
+  ACCOUNT: {
+    PROFILE: "/account/profile",
+  },
   STUDENT_REGISTER: "/register/student",
   TEACHER_REGISTER: "/register/teacher",
   FORGOT_PASSWORD: "/forgot-password",

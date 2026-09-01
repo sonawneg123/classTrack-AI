@@ -192,8 +192,10 @@ const config = {
   },
 
   upload: {
-    maxSizeMb:  Number(process.env.MAX_UPLOAD_MB) || 15,
-    uploadDir:  process.env.UPLOAD_DIR || 'uploads',
+    maxSizeMb:      Number(process.env.MAX_UPLOAD_MB)        || 15,
+    uploadDir:      process.env.UPLOAD_DIR                   || 'uploads',
+    avatarMaxSizeMb: Number(process.env.AVATAR_MAX_SIZE_MB)  || 5,
+    avatarDir:      process.env.AVATAR_UPLOAD_DIR            || 'uploads/avatars',
   },
 
   ai: {
